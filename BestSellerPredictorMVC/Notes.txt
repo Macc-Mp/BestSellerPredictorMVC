@@ -1,1 +1,2 @@
 ﻿Never Include .vs when commiting to git
+check for local changes before committing
