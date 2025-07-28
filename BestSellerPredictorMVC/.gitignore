@@ -1,0 +1,39 @@
+﻿# Visual Studio user-specific files
+.vs/
+*.user
+*.suo
+
+# Build results
+bin/
+obj/
+out/
+
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# Publish results
+wwwroot/dist/
+wwwroot/node_modules/
+
+# User-specific files
+*.rsuser
+*.sln.docstates
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Rider IDE files
+.idea/
+
+# NuGet packages
+*.nupkg
+# The packages folder can be ignored if you use package restore
+packages/
+
+# Others
+*.db
+*.sqlite

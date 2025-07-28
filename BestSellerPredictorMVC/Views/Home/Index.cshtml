@@ -1,0 +1,126 @@
+﻿@model IndexViewModel
+@using Microsoft.Extensions.Logging  
+<h1 class="display-4">Product List</h1>  
+
+@if(Model?.TrainingDataList != null)
+{
+    <h5>Products Evaluated for Model Training. (from Excel)</h5>
+    <table class="table">
+        
+        <thead>
+            <tr>
+                <th>PID </th>
+                <th>Product Name</th>
+                <th>Category</th>
+                <th>Unit Price</th>
+                <th>Quantity Sold</th>
+                <th>Sale Performance Category</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            @foreach (var item in Model.TrainingDataList)
+            {
+                <tr>
+                    <td>@item.ProductId</td>
+                    <td>@item.ProductName</td>
+                    <td>@item.Category</td>
+                    <td>@item.UnitPrice</td>
+                    <td>@item.QuantitySold</td>
+                    <td>@item.SalePerformanceCategory</td>
+                </tr>
+            }
+
+        </tbody>
+
+    </table>
+}
+else{
+    <p> No data from the excel found. </p>
+     Console.WriteLine("No items called from training data list!");  
+}
+
+
+@*======================= *@
+@if (Model?.ProductList != null)  
+{  
+    <br />
+    <h5>Products for evaluation. (from SQL)</h5>
+    <br />
+    <table class="table">  
+        <th>ID</th>
+        <th>Name</th>
+        <th>Category</th>
+        <th>Price</th>
+        <th>Current Stock</th>
+
+        <tbody>  
+            @foreach (var p in Model.ProductList)  
+            {  
+                <tr>  
+                    <td>@p.ProductId</td>  
+                    <td>@p.ProductName</td>  
+                    <td>@p.Category</td>  
+                    <td>@p.UnitPrice</td>  
+                    <td>@p.CurrentStock</td>  
+                </tr>  
+            }  
+        </tbody>  
+    </table>  
+}  
+else  
+{  
+    <p>NO ITEMS FOUND</p>  
+    Console.WriteLine("No items called from productlist!");  
+}
+
+
+@if (Model?.ModelEvalMetrics != null)
+{
+    <h5>Model Evaluation Metrics</h5>
+    <ul>
+        <li>MicroAccuracy: @Model.ModelEvalMetrics.MicroAccuracy:F4</li>
+        <li>MacroAccuracy: @Model.ModelEvalMetrics.MacroAccuracy:F4</li>
+        <li>LogLoss: @Model.ModelEvalMetrics.LogLoss:F4</li>
+    </ul>
+}
+
+@if (Model?.PredictionResults != null && Model.PredictionResults.Count > 0)
+{
+    <h5>Predicted Sale Performance</h5>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Product ID</th>
+                <th>Predicted Category</th>
+                <th>Scores</th>
+            </tr>
+        </thead>
+        <tbody>
+            @for (int i = 0; i < Model.PredictionResults.Count; i++)
+            {
+                var pred = Model.PredictionResults[i];
+                <tr>
+                    <td>@Model.ProductList[i].ProductId</td>
+                    <td>@pred.PredictedSalePerformanceCategory</td>
+                    <td>
+                        @if (pred.Score != null)
+                        {
+                            string[] classLabels = new[] { "Underperforming", "BestSeller", "NormalPerformer" };
+                            for (int j = 0; j < pred.Score.Length && j < classLabels.Length; j++)
+                            {
+                                <span>@classLabels[j]: @pred.Score[j].ToString("F4") </span>
+                                <br>
+                            }
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <p>Predicted results cannot be shown or list is null</p>
+    Console.WriteLine("No items called from prediction results!");
+}
