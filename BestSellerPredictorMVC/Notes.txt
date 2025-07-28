@@ -1,0 +1,1 @@
+﻿Never Include .vs when commiting to git
