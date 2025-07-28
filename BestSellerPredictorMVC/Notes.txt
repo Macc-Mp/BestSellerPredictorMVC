@@ -1,2 +1,7 @@
 ﻿Never Include .vs when commiting to git
 check for local changes before committing
+
+paule@DESKTOP-INJES11 MINGW64 ~/documents/cpp_test/BestSellerPredictorMVC (master)
+$ git branch -M main
+
+use git bash to commit changes
