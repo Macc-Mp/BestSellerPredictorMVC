@@ -1,126 +1,143 @@
 ﻿@model IndexViewModel
 @using Microsoft.Extensions.Logging  
-<h1 class="display-4">Product List</h1>  
 
-@if(Model?.TrainingDataList != null)
+<form asp-action="UploadExcel" asp-controller="Home" enctype="multipart/form-data" method="post">
+    <div class="form-group">
+        <label for="excelFile">Upload Excel File:</label>
+        <input type="file" name="excelFile" id="excelFile" class="form-control" accept=".xlsx" required />
+    </div>
+    <button type="submit" class="btn btn-primary mt-2">Upload</button>
+</form>
+
+@if (ViewBag.ExcelFileUploaded as bool? == true)
 {
-    <h5>Products Evaluated for Model Training. (from Excel)</h5>
-    <table class="table">
-        
-        <thead>
-            <tr>
-                <th>PID </th>
-                <th>Product Name</th>
-                <th>Category</th>
-                <th>Unit Price</th>
-                <th>Quantity Sold</th>
-                <th>Sale Performance Category</th>
-            </tr>
-        </thead>
+    <form asp-action="RemoveExcel" asp-controller="Home" method="post" class="mt-2">
+        <button type="submit" class="btn btn-danger">Remove Uploaded Excel</button>
+    </form>
 
-        <tbody>
-            @foreach (var item in Model.TrainingDataList)
-            {
+    <h1 class="display-4">Product List</h1>  
+
+    @* Show all details only if Excel is uploaded *@
+    @if(Model?.TrainingDataList != null && Model.TrainingDataList.Count > 0)
+    {
+        <h5>Products Evaluated for Model Training. (from Excel)</h5>
+        <table class="table">
+            
+            <thead>
                 <tr>
-                    <td>@item.ProductId</td>
-                    <td>@item.ProductName</td>
-                    <td>@item.Category</td>
-                    <td>@item.UnitPrice</td>
-                    <td>@item.QuantitySold</td>
-                    <td>@item.SalePerformanceCategory</td>
+                    <th>PID </th>
+                    <th>Product Name</th>
+                    <th>Category</th>
+                    <th>Unit Price</th>
+                    <th>Quantity Sold</th>
+                    <th>Sale Performance Category</th>
                 </tr>
-            }
+            </thead>
 
-        </tbody>
+            <tbody>
+                @foreach (var item in Model.TrainingDataList)
+                {
+                    <tr>
+                        <td>@item.ProductId</td>
+                        <td>@item.ProductName</td>
+                        <td>@item.Category</td>
+                        <td>@item.UnitPrice</td>
+                        <td>@item.QuantitySold</td>
+                        <td>@item.SalePerformanceCategory</td>
+                    </tr>
+                }
 
-    </table>
-}
-else{
-    <p> No data from the excel found. </p>
-     Console.WriteLine("No items called from training data list!");  
-}
+            </tbody>
+
+        </table>
+    }
+    else
+    {
+        <p>No data from the excel found.</p>
+    }
+
+    @if (Model?.ProductList != null && Model.ProductList.Count > 0)
+    {
+        <h5>Products for evaluation. (from SQL)</h5>
+        <table class="table">  
+            <th>ID</th>
+            <th>Name</th>
+            <th>Category</th>
+            <th>Price</th>
+            <th>Current Stock</th>
+
+            <tbody>  
+                @foreach (var p in Model.ProductList)  
+                {  
+                    <tr>  
+                        <td>@p.ProductId</td>  
+                        <td>@p.ProductName</td>  
+                        <td>@p.Category</td>  
+                        <td>@p.UnitPrice</td>  
+                        <td>@p.CurrentStock</td>  
+                    </tr>  
+                }  
+            </tbody>  
+        </table>  
+    }  
+    else  
+    {  
+        <p>NO ITEMS FOUND</p>  
+    }
 
 
-@*======================= *@
-@if (Model?.ProductList != null)  
-{  
-    <br />
-    <h5>Products for evaluation. (from SQL)</h5>
-    <br />
-    <table class="table">  
-        <th>ID</th>
-        <th>Name</th>
-        <th>Category</th>
-        <th>Price</th>
-        <th>Current Stock</th>
+    @if (Model?.ModelEvalMetrics != null)
+    {
+        <h5>Model Evaluation Metrics</h5>
+        <ul>
+            <li>MicroAccuracy: @Model.ModelEvalMetrics.MicroAccuracy:F4</li>
+            <li>MacroAccuracy: @Model.ModelEvalMetrics.MacroAccuracy:F4</li>
+            <li>LogLoss: @Model.ModelEvalMetrics.LogLoss:F4</li>
+        </ul>
+    }
 
-        <tbody>  
-            @foreach (var p in Model.ProductList)  
-            {  
-                <tr>  
-                    <td>@p.ProductId</td>  
-                    <td>@p.ProductName</td>  
-                    <td>@p.Category</td>  
-                    <td>@p.UnitPrice</td>  
-                    <td>@p.CurrentStock</td>  
-                </tr>  
-            }  
-        </tbody>  
-    </table>  
-}  
-else  
-{  
-    <p>NO ITEMS FOUND</p>  
-    Console.WriteLine("No items called from productlist!");  
-}
-
-
-@if (Model?.ModelEvalMetrics != null)
-{
-    <h5>Model Evaluation Metrics</h5>
-    <ul>
-        <li>MicroAccuracy: @Model.ModelEvalMetrics.MicroAccuracy:F4</li>
-        <li>MacroAccuracy: @Model.ModelEvalMetrics.MacroAccuracy:F4</li>
-        <li>LogLoss: @Model.ModelEvalMetrics.LogLoss:F4</li>
-    </ul>
-}
-
-@if (Model?.PredictionResults != null && Model.PredictionResults.Count > 0)
-{
-    <h5>Predicted Sale Performance</h5>
-    <table class="table">
-        <thead>
-            <tr>
-                <th>Product ID</th>
-                <th>Predicted Category</th>
-                <th>Scores</th>
-            </tr>
-        </thead>
-        <tbody>
-            @for (int i = 0; i < Model.PredictionResults.Count; i++)
-            {
-                var pred = Model.PredictionResults[i];
+    @if (Model?.PredictionResults != null && Model.PredictionResults.Count > 0)
+    {
+        <h5>Predicted Sale Performance</h5>
+        <table class="table">
+            <thead>
                 <tr>
-                    <td>@Model.ProductList[i].ProductId</td>
-                    <td>@pred.PredictedSalePerformanceCategory</td>
-                    <td>
-                        @if (pred.Score != null)
-                        {
-                            string[] classLabels = new[] { "Underperforming", "BestSeller", "NormalPerformer" };
-                            for (int j = 0; j < pred.Score.Length && j < classLabels.Length; j++)
+                    <th>Product ID</th>
+                    <th>Predicted Category</th>
+                    <th>Scores</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (int i = 0; i < Model.PredictionResults.Count; i++)
+                {
+                    var pred = Model.PredictionResults[i];
+                    <tr>
+                        <td>@Model.ProductList[i].ProductId</td>
+                        <td>@pred.PredictedSalePerformanceCategory</td>
+                        <td>
+                            @if (pred.Score != null)
                             {
-                                <span>@classLabels[j]: @pred.Score[j].ToString("F4") </span>
-                                <br>
+                                string[] classLabels = new[] { "Underperforming", "BestSeller", "NormalPerformer" };
+                                for (int j = 0; j < pred.Score.Length && j < classLabels.Length; j++)
+                                {
+                                    <span>@classLabels[j]: @pred.Score[j].ToString("F4") </span>
+                                    <br>
+                                }
                             }
-                        }
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <p>Predicted results cannot be shown or list is null</p>
+    }
 }
 else
 {
-    <p>Predicted results cannot be shown or list is null</p>
-    Console.WriteLine("No items called from prediction results!");
+    <div class="alert alert-info mt-3">
+        Please upload an Excel file to begin. The details will appear after upload.
+    </div>
 }
