@@ -11,60 +11,59 @@ public class ExcelDataLoader
     {
         var data = new List<ProductSalesData>();
 
-
         if (!File.Exists(excelFilePath))
         {
             Console.WriteLine($"Excel file not found: {excelFilePath}");
             return data;
         }
-        else
+
+        try
         {
-            Console.WriteLine($"Loading data from Excel file: {excelFilePath}");
-        }
-
-            try
+            using (var package = new ExcelPackage(new FileInfo(excelFilePath)))
             {
-                // Remove or comment out the following line (now set in Program.cs):
-                // ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-                using (var package = new ExcelPackage(new FileInfo(excelFilePath)))
+                var worksheet = package.Workbook.Worksheets.Count > 0 ? package.Workbook.Worksheets[0] : null;
+                if (worksheet == null)
                 {
-                    var worksheet = package.Workbook.Worksheets[0];
-                    if (worksheet == null)
+                    Console.WriteLine("No worksheet found in Excel file.");
+                    return data;
+                }
+
+                if (worksheet.Dimension == null)
+                {
+                    Console.WriteLine("Worksheet has no data.");
+                    return data;
+                }
+
+                int rowCount = worksheet.Dimension.End.Row;
+                int colCount = worksheet.Dimension.End.Column;
+
+                // Assume first row is header
+                for (int row = 2; row <= rowCount; row++)
+                {
+                    try
                     {
-                        Console.WriteLine("No worksheet found in Excel file.");
-                        return data;
+                        var record = new ProductSalesData
+                        {
+                            ProductId = worksheet.Cells[row, 1].GetValue<int>(),
+                            ProductName = worksheet.Cells[row, 2].GetValue<string>(),
+                            Category = worksheet.Cells[row, 3].GetValue<string>(),
+                            UnitPrice = worksheet.Cells[row, 4].GetValue<float>(),
+                            CurrentStock = worksheet.Cells[row, 5].GetValue<float>(),
+                            SalePerformanceCategory = worksheet.Cells[row, 6].GetValue<string>()
+                        };
+                        data.Add(record);
                     }
-
-                    int rowCount = worksheet.Dimension.End.Row;
-                    int colCount = worksheet.Dimension.End.Column;
-
-                    // Assume first row is header
-                    for (int row = 2; row <= rowCount; row++)
+                    catch (Exception ex)
                     {
-                        try
-                        {
-                            var record = new ProductSalesData
-                            {
-                                ProductId = worksheet.Cells[row, 1].GetValue<int>(),
-                                ProductName = worksheet.Cells[row, 2].GetValue<string>(),
-                                Category = worksheet.Cells[row, 3].GetValue<string>(),
-                                UnitPrice = worksheet.Cells[row, 4].GetValue<float>(),
-                                CurrentStock = worksheet.Cells[row, 5].GetValue<float>(),
-                                SalePerformanceCategory = worksheet.Cells[row, 6].GetValue<string>()
-                            };
-                            data.Add(record);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Error reading row {row}: {ex.Message}");
-                        }
+                        Console.WriteLine($"Error reading row {row}: {ex.Message}");
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error loading Excel file: {ex.Message}");
-            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading Excel file: {ex.Message}");
+        }
 
         return data;
     }
@@ -83,10 +82,16 @@ public class ExcelDataLoader
         {
             using (var package = new ExcelPackage(new FileInfo(excelFilePath)))
             {
-                var worksheet = package.Workbook.Worksheets[0];
+                var worksheet = package.Workbook.Worksheets.Count > 0 ? package.Workbook.Worksheets[0] : null;
                 if (worksheet == null)
                 {
                     Console.WriteLine("No worksheet found in Excel file.");
+                    return data;
+                }
+
+                if (worksheet.Dimension == null)
+                {
+                    Console.WriteLine("Worksheet has no data.");
                     return data;
                 }
 
@@ -120,5 +125,8 @@ public class ExcelDataLoader
         }
 
         return data;
+
     }
+
 }
+

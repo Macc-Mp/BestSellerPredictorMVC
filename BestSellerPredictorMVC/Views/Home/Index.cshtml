@@ -1,143 +1,120 @@
 ﻿@model IndexViewModel
-@using Microsoft.Extensions.Logging  
 
-<form asp-action="UploadExcel" asp-controller="Home" enctype="multipart/form-data" method="post">
-    <div class="form-group">
-        <label for="excelFile">Upload Excel File:</label>
-        <input type="file" name="excelFile" id="excelFile" class="form-control" accept=".xlsx" required />
+<div class="row">
+    <div class="col-md-6">
+        <h4>Step 1 — Upload Training Excel</h4>
+        <form asp-action="UploadTrainingExcel" asp-controller="Home" enctype="multipart/form-data" method="post">
+            <div class="form-group">
+                <label for="trainingExcelFile">Training Excel (.xlsx):</label>
+                <input type="file" name="trainingExcelFile" id="trainingExcelFile" class="form-control" accept=".xlsx" required />
+            </div>
+            <button type="submit" class="btn btn-primary mt-2">Upload & Train</button>
+        </form>
+
+        @if (TempData["TrainingExcelUploaded"] as bool? == true)
+        {
+            <div class="alert alert-success mt-2">Training file uploaded for your session. The model is being trained.</div>
+        }
     </div>
-    <button type="submit" class="btn btn-primary mt-2">Upload</button>
-</form>
 
-@if (ViewBag.ExcelFileUploaded as bool? == true)
+    <div class="col-md-6">
+        <h4>Step 2 — Upload Prediction Excel</h4>
+
+        @if (ViewBag.ModelTrained as bool? == true)
+        {
+            <form asp-action="UploadPredictionExcel" asp-controller="Home" enctype="multipart/form-data" method="post">
+                <div class="form-group">
+                    <label for="predictionExcelFile">Prediction Excel (.xlsx):</label>
+                    <input type="file" name="predictionExcelFile" id="predictionExcelFile" class="form-control" accept=".xlsx" required />
+                </div>
+                <button type="submit" class="btn btn-primary mt-2">Upload & Predict</button>
+            </form>
+
+            @if (TempData["PredictionExcelUploaded"] as bool? == true)
+            {
+                <div class="alert alert-success mt-2">Prediction file uploaded for your session.</div>
+            }
+        }
+        else
+        {
+            <div class="alert alert-info">
+                The model is not trained for your session yet. Upload a training file (left) to proceed.
+            </div>
+        }
+    </div>
+</div>
+
+<hr />
+
+@if (ViewBag.TrainingExcelUploaded as bool? == true && Model?.TrainingDataList?.Count > 0)
 {
-    <form asp-action="RemoveExcel" asp-controller="Home" method="post" class="mt-2">
-        <button type="submit" class="btn btn-danger">Remove Uploaded Excel</button>
-    </form>
-
-    <h1 class="display-4">Product List</h1>  
-
-    @* Show all details only if Excel is uploaded *@
-    @if(Model?.TrainingDataList != null && Model.TrainingDataList.Count > 0)
-    {
-        <h5>Products Evaluated for Model Training. (from Excel)</h5>
-        <table class="table">
-            
-            <thead>
+    <h5>Training Data (from your uploaded Excel)</h5>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>PID</th>
+                <th>Product Name</th>
+                <th>Category</th>
+                <th>Unit Price</th>
+                <th>Quantity Sold</th>
+                <th>Sale Performance Category</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Model.TrainingDataList)
+            {
                 <tr>
-                    <th>PID </th>
-                    <th>Product Name</th>
-                    <th>Category</th>
-                    <th>Unit Price</th>
-                    <th>Quantity Sold</th>
-                    <th>Sale Performance Category</th>
+                    <td>@item.ProductId</td>
+                    <td>@item.ProductName</td>
+                    <td>@item.Category</td>
+                    <td>@item.UnitPrice</td>
+                    <td>@item.QuantitySold</td>
+                    <td>@item.SalePerformanceCategory</td>
                 </tr>
-            </thead>
-
-            <tbody>
-                @foreach (var item in Model.TrainingDataList)
-                {
-                    <tr>
-                        <td>@item.ProductId</td>
-                        <td>@item.ProductName</td>
-                        <td>@item.Category</td>
-                        <td>@item.UnitPrice</td>
-                        <td>@item.QuantitySold</td>
-                        <td>@item.SalePerformanceCategory</td>
-                    </tr>
-                }
-
-            </tbody>
-
-        </table>
-    }
-    else
-    {
-        <p>No data from the excel found.</p>
-    }
-
-    @if (Model?.ProductList != null && Model.ProductList.Count > 0)
-    {
-        <h5>Products for evaluation. (from SQL)</h5>
-        <table class="table">  
-            <th>ID</th>
-            <th>Name</th>
-            <th>Category</th>
-            <th>Price</th>
-            <th>Current Stock</th>
-
-            <tbody>  
-                @foreach (var p in Model.ProductList)  
-                {  
-                    <tr>  
-                        <td>@p.ProductId</td>  
-                        <td>@p.ProductName</td>  
-                        <td>@p.Category</td>  
-                        <td>@p.UnitPrice</td>  
-                        <td>@p.CurrentStock</td>  
-                    </tr>  
-                }  
-            </tbody>  
-        </table>  
-    }  
-    else  
-    {  
-        <p>NO ITEMS FOUND</p>  
-    }
-
-
-    @if (Model?.ModelEvalMetrics != null)
-    {
-        <h5>Model Evaluation Metrics</h5>
-        <ul>
-            <li>MicroAccuracy: @Model.ModelEvalMetrics.MicroAccuracy:F4</li>
-            <li>MacroAccuracy: @Model.ModelEvalMetrics.MacroAccuracy:F4</li>
-            <li>LogLoss: @Model.ModelEvalMetrics.LogLoss:F4</li>
-        </ul>
-    }
-
-    @if (Model?.PredictionResults != null && Model.PredictionResults.Count > 0)
-    {
-        <h5>Predicted Sale Performance</h5>
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>Product ID</th>
-                    <th>Predicted Category</th>
-                    <th>Scores</th>
-                </tr>
-            </thead>
-            <tbody>
-                @for (int i = 0; i < Model.PredictionResults.Count; i++)
-                {
-                    var pred = Model.PredictionResults[i];
-                    <tr>
-                        <td>@Model.ProductList[i].ProductId</td>
-                        <td>@pred.PredictedSalePerformanceCategory</td>
-                        <td>
-                            @if (pred.Score != null)
-                            {
-                                string[] classLabels = new[] { "Underperforming", "BestSeller", "NormalPerformer" };
-                                for (int j = 0; j < pred.Score.Length && j < classLabels.Length; j++)
-                                {
-                                    <span>@classLabels[j]: @pred.Score[j].ToString("F4") </span>
-                                    <br>
-                                }
-                            }
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    }
-    else
-    {
-        <p>Predicted results cannot be shown or list is null</p>
-    }
+            }
+        </tbody>
+    </table>
 }
-else
+
+@if ((ViewBag.TrainingExcelUploaded as bool? == true) && (ViewBag.ModelTrained as bool? == true))
 {
-    <div class="alert alert-info mt-3">
-        Please upload an Excel file to begin. The details will appear after upload.
-    </div>
+    <h5>Model Evaluation Metrics (your session)</h5>
+    <ul>
+        <li>MicroAccuracy: @ViewBag.ModelMetric_Micro</li>
+        <li>MacroAccuracy: @ViewBag.ModelMetric_Macro</li>
+        <li>LogLoss: @ViewBag.ModelMetric_LogLoss</li>
+    </ul>
+}
+
+@if ((ViewBag.PredictionExcelUploaded as bool? == true) && (ViewBag.ModelTrained as bool? == true) && Model?.PredictionResults?.Count > 0)
+{
+    <h5>Predicted Sale Performance (for your uploaded prediction file)</h5>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Product ID</th>
+                <th>Predicted Category</th>
+                <th>Scores</th>
+            </tr>
+        </thead>
+        <tbody>
+            @for (int i = 0; i < Model.PredictionResults.Count; i++)
+            {
+                var pred = Model.PredictionResults[i];
+                <tr>
+                    <td>@Model.ProductList[i].ProductId</td>
+                    <td>@pred.PredictedSalePerformanceCategory</td>
+                    <td>
+                        @if (pred.Score != null)
+                        {
+                            for (int j = 0; j < pred.Score.Length; j++)
+                            {
+                                <div>@pred.Score[j].ToString("F4")</div>
+                            }
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
 }
