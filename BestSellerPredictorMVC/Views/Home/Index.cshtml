@@ -118,3 +118,21 @@
         </tbody>
     </table>
 }
+
+<!-- add temporary debug UI -->
+<button id="showSession" class="btn btn-secondary">Show Session Debug</button>
+<pre id="sessionOut" style="white-space:pre-wrap;"></pre>
+
+@section Scripts {
+<script>
+document.getElementById('showSession').addEventListener('click', async () => {
+  try {
+    const resp = await fetch('/Home/SessionDebug', { credentials: 'same-origin' });
+    const json = await resp.json();
+    document.getElementById('sessionOut').textContent = JSON.stringify(json, null, 2);
+  } catch (e) {
+    document.getElementById('sessionOut').textContent = 'Error: ' + e.message;
+  }
+});
+</script>
+}
