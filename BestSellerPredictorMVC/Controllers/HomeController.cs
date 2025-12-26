@@ -94,15 +94,57 @@ namespace BestSellerPredictorMVC.Controllers
                     var trainer = new MLModelTrainer(modelPath);
                     var (model, metrics) = trainer.TrainAndSaveModel(trainingData);
 
-                    _logger.LogInformation("Trainer finished. Model file exists: {Exists}", System.IO.File.Exists(modelPath));
+                    _logger.LogInformation("Trainer finished. Expected model path: {ModelPath}. Exists: {Exists}", modelPath, System.IO.File.Exists(modelPath));
 
-                    if (model != null && System.IO.File.Exists(modelPath))
+                    // Robust model file detection: prefer exact expected name, otherwise pick most recent match
+                    string foundModelFileName = null;
+                    if (model != null)
                     {
-                        HttpContext.Session.SetString("ModelPath", modelFileName);
+                        if (System.IO.File.Exists(modelPath))
+                        {
+                            foundModelFileName = modelFileName;
+                        }
+                        else
+                        {
+                            try
+                            {
+                                var candidates = Directory.Exists(_uploadPath)
+                                    ? Directory.GetFiles(_uploadPath, "*MLModel.zip")
+                                        .OrderByDescending(f => new FileInfo(f).LastWriteTimeUtc)
+                                        .ToArray()
+                                    : Array.Empty<string>();
+
+                                if (candidates.Length > 0)
+                                {
+                                    foundModelFileName = Path.GetFileName(candidates[0]);
+                                    _logger.LogInformation("Fallback model file chosen: {Fallback}", candidates[0]);
+                                }
+                                else
+                                {
+                                    _logger.LogWarning("No candidate model files found in uploads folder as fallback.");
+                                }
+                            }
+                            catch (System.Exception ex)
+                            {
+                                _logger.LogError(ex, "Error while searching for fallback model file");
+                            }
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(foundModelFileName))
+                    {
+                        HttpContext.Session.SetString("ModelPath", foundModelFileName);
                         HttpContext.Session.SetString("ModelMetric_Micro", metrics?.MicroAccuracy.ToString("F4") ?? string.Empty);
                         HttpContext.Session.SetString("ModelMetric_Macro", metrics?.MacroAccuracy.ToString("F4") ?? string.Empty);
                         HttpContext.Session.SetString("ModelMetric_LogLoss", metrics?.LogLoss.ToString("F4") ?? string.Empty);
                         TempData["ModelTrained"] = true;
+
+                        _logger.LogInformation("ModelPath session set to {ModelFile}", foundModelFileName);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Model was trained but no model file was found to set in session.");
+                        TempData["ModelTrained"] = false;
                     }
                 }
             }
