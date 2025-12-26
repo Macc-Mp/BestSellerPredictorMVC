@@ -10,6 +10,7 @@ using System;
 using System.IO;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.CookiePolicy;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -62,6 +63,13 @@ builder.Services.AddSession(options =>
     options.Cookie.SecurePolicy = cookieSecurePolicy;
 });
 
+// Configure forwarded headers so the app sees the original scheme behind proxies (App Service, Front Door, etc.)
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // If you know the proxy IPs, add them to KnownProxies / KnownNetworks for extra security.
+});
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
@@ -75,7 +83,9 @@ app.UseStaticFiles();
 
 app.UseRouting();
 
-// Ensure cookie policy runs before session
+// Process forwarded headers BEFORE cookie policy and session
+app.UseForwardedHeaders();
+
 app.UseCookiePolicy();
 
 app.UseSession();
