@@ -118,6 +118,32 @@ namespace BestSellerPredictorMVC.Controllers
         [HttpPost]
         public async Task<IActionResult> UploadPredictionExcel(IFormFile predictionExcelFile)
         {
+            // Diagnostics: log request-level info to show whether server saw multipart form and files
+            try
+            {
+                _logger.LogInformation("UploadPredictionExcel called. Request ContentLength={ContentLength}, HasFormContentType={HasForm}, Method={Method}",
+                    Request.ContentLength, Request.HasFormContentType, Request.Method);
+
+                if (Request.HasFormContentType)
+                {
+                    _logger.LogInformation("Form keys: {Keys}", string.Join(",", Request.Form.Keys));
+                    _logger.LogInformation("Form file count: {Count}", Request.Form.Files.Count);
+                    for (int i = 0; i < Request.Form.Files.Count; i++)
+                    {
+                        var f = Request.Form.Files[i];
+                        _logger.LogInformation("Form file {Index}: Name={Name}, FileName={FileName}, Length={Length}", i, f.Name, f.FileName, f.Length);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("Request does not have form content type; cannot read Request.Form.");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error while inspecting request form");
+            }
+
             // Diagnostic logs: confirm session + cookie + current session values
             _logger.LogInformation("UploadPredictionExcel called. Request Cookies: {Cookies}", Request.Headers["Cookie"].ToString());
             _logger.LogInformation("Session available: {IsAvailable}", HttpContext.Session.IsAvailable);
@@ -129,6 +155,9 @@ namespace BestSellerPredictorMVC.Controllers
             if (predictionExcelFile == null || predictionExcelFile.Length == 0)
             {
                 TempData["PredictionExcelUploaded"] = false;
+                // Log explicit null/empty reason to help debugging
+                _logger.LogWarning("predictionExcelFile is null or empty. Param null={IsNull} Length={Length}",
+                    predictionExcelFile == null, predictionExcelFile?.Length);
                 return RedirectToAction("Index");
             }
 

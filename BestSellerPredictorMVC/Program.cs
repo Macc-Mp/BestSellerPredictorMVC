@@ -10,6 +10,7 @@ using System;
 using System.IO;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.CookiePolicy;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -49,6 +50,12 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
     options.MinimumSameSitePolicy = SameSiteMode.Unspecified;
     options.HttpOnly = HttpOnlyPolicy.Always;
     options.Secure = cookieSecurePolicy;
+});
+
+// Increase multipart body limit for uploads (adjust the value as needed)
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 200 * 1024 * 1024; // 200 MB for example
 });
 
 // Session (in-memory ok for single instance; use Redis for scale-out)
