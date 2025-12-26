@@ -1,4 +1,5 @@
 using BestSellerPredictorMVC.Models;
+using BestSellerPredictorMVC.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -33,6 +34,9 @@ builder.Services.Configure<CookieTempDataProviderOptions>(options =>
     options.Cookie.SameSite = SameSiteMode.None;
 });
 builder.Services.AddSingleton<ITempDataProvider, CookieTempDataProvider>();
+
+// Register ModelStore (durable JSON). Replace with DB/Blob in production.
+builder.Services.AddSingleton<ModelStore>();
 
 // Add MVC
 builder.Services.AddControllersWithViews();

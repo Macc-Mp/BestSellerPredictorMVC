@@ -23,17 +23,13 @@
         @if (ViewBag.ModelTrained as bool? == true)
         {
             <form asp-action="UploadPredictionExcel" asp-controller="Home" enctype="multipart/form-data" method="post">
+                <input type="hidden" name="token" value="@(ViewBag.ModelToken as string ?? string.Empty)" />
                 <div class="form-group">
                     <label for="predictionExcelFile">Prediction Excel (.xlsx):</label>
                     <input type="file" name="predictionExcelFile" id="predictionExcelFile" class="form-control" accept=".xlsx" required />
                 </div>
                 <button type="submit" class="btn btn-primary mt-2">Upload & Predict</button>
             </form>
-
-            @if (TempData["PredictionExcelUploaded"] as bool? == true)
-            {
-                <div class="alert alert-success mt-2">Prediction file uploaded for your session.</div>
-            }
         }
         else
         {
