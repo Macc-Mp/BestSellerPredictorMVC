@@ -94,20 +94,37 @@ namespace BestSellerPredictorMVC.Controllers
                     var trainer = new MLModelTrainer(modelPath);
                     var (model, metrics) = trainer.TrainAndSaveModel(trainingData);
 
-                    _logger.LogInformation("Trainer finished. Model file exists: {Exists}", System.IO.File.Exists(modelPath));
+                    _logger.LogInformation("Trainer returned model null? {IsNull}. Model file exists: {Exists} at {ModelPath}", model == null, System.IO.File.Exists(modelPath), modelPath);
 
-                    if (model != null && System.IO.File.Exists(modelPath))
+                    // Ensure session stores the ModelPath if the model file exists (even if trainer returned null)
+                    if (System.IO.File.Exists(modelPath))
                     {
                         HttpContext.Session.SetString("ModelPath", modelFileName);
                         HttpContext.Session.SetString("ModelMetric_Micro", metrics?.MicroAccuracy.ToString("F4") ?? string.Empty);
                         HttpContext.Session.SetString("ModelMetric_Macro", metrics?.MacroAccuracy.ToString("F4") ?? string.Empty);
                         HttpContext.Session.SetString("ModelMetric_LogLoss", metrics?.LogLoss.ToString("F4") ?? string.Empty);
                         TempData["ModelTrained"] = true;
+
+                        // commit session to make sure values are persisted before redirect
+                        try
+                        {
+                            await HttpContext.Session.CommitAsync();
+                            _logger.LogInformation("Session committed after training. ModelPath={ModelPath}", modelFileName);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Session.CommitAsync failed");
+                        }
+                    }
+                    else
+                    {
+                        TempData["ModelTrained"] = false;
                     }
                 }
             }
             catch (System.Exception ex)
             {
+                // log but don't crash the request
                 _logger.LogError(ex, "Training failed after upload");
                 TempData["ModelTrained"] = false;
             }
