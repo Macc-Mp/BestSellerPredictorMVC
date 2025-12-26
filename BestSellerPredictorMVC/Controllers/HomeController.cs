@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Http;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using Microsoft.AspNetCore.Hosting;
+using System.Threading.Tasks;
 
 namespace BestSellerPredictorMVC.Controllers
 {
@@ -13,11 +15,21 @@ namespace BestSellerPredictorMVC.Controllers
         private readonly ILogger<HomeController> _logger;
         private readonly string _uploadPath;
 
-        public HomeController(ILogger<HomeController> logger)
+        public HomeController(ILogger<HomeController> logger, IWebHostEnvironment env)
         {
             _logger = logger;
-            _uploadPath = Path.Combine("wwwroot", "uploads");
+
+            // Use the real web root so files go to site/wwwroot/uploads on Azure
+            var webRoot = env?.WebRootPath;
+            if (string.IsNullOrWhiteSpace(webRoot))
+            {
+                webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            }
+
+            _uploadPath = Path.Combine(webRoot, "uploads");
             Directory.CreateDirectory(_uploadPath);
+
+            _logger.LogInformation("Upload path set to {UploadPath}", _uploadPath);
         }
 
         // Upload training file, save with unique name, train immediately and store model filename + metrics in session
@@ -39,6 +51,8 @@ namespace BestSellerPredictorMVC.Controllers
             {
                 await trainingExcelFile.CopyToAsync(stream);
             }
+
+            _logger.LogInformation("Training file saved to {FilePath} (exists={Exists})", filePath, System.IO.File.Exists(filePath));
 
             // persist in session
             HttpContext.Session.SetString("TrainingFile", storedName);
@@ -68,6 +82,8 @@ namespace BestSellerPredictorMVC.Controllers
                     var trainer = new MLModelTrainer(modelPath);
                     var (model, metrics) = trainer.TrainAndSaveModel(trainingData);
 
+                    _logger.LogInformation("Trainer finished. Model file exists: {Exists}", System.IO.File.Exists(modelPath));
+
                     if (model != null && System.IO.File.Exists(modelPath))
                     {
                         HttpContext.Session.SetString("ModelPath", modelFileName);
@@ -80,7 +96,6 @@ namespace BestSellerPredictorMVC.Controllers
             }
             catch (System.Exception ex)
             {
-                // log but don't crash the request
                 _logger.LogError(ex, "Training failed after upload");
                 TempData["ModelTrained"] = false;
             }
@@ -108,6 +123,8 @@ namespace BestSellerPredictorMVC.Controllers
                 await predictionExcelFile.CopyToAsync(stream);
             }
 
+            _logger.LogInformation("Prediction file saved to {FilePath} (exists={Exists})", filePath, System.IO.File.Exists(filePath));
+
             HttpContext.Session.SetString("PredictionFile", storedName);
             TempData["PredictionExcelUploaded"] = true;
 
@@ -122,6 +139,9 @@ namespace BestSellerPredictorMVC.Controllers
             var trainingFile = HttpContext.Session.GetString("TrainingFile");
             var predictionFile = HttpContext.Session.GetString("PredictionFile");
             var modelFile = HttpContext.Session.GetString("ModelPath");
+
+            _logger.LogInformation("Index: Session keys ModelPath={ModelPath} TrainingFile={TrainingFile} PredictionFile={PredictionFile}",
+                modelFile, trainingFile, predictionFile);
 
             var trainingDataExcel = new List<TrainingDataExcel>();
             var productList = new List<ProductSalesData>();
