@@ -19,15 +19,33 @@ namespace BestSellerPredictorMVC.Controllers
         {
             _logger = logger;
 
-            // Use the real web root so files go to site/wwwroot/uploads on Azure
-            var webRoot = env?.WebRootPath;
-            if (string.IsNullOrWhiteSpace(webRoot))
-            {
-                webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            }
+            // Resolve a canonical uploads folder. Prefer site\wwwroot\uploads but fall back to other sensible locations.
+            var contentRoot = env?.ContentRootPath ?? Directory.GetCurrentDirectory();
+            var webRoot = env?.WebRootPath ?? Path.Combine(contentRoot, "wwwroot");
 
-            _uploadPath = Path.Combine(webRoot, "uploads");
-            Directory.CreateDirectory(_uploadPath);
+            var preferred = Path.Combine(contentRoot, "wwwroot", "uploads");   // typical
+            var alt1 = Path.Combine(contentRoot, "uploads");                  // alternative
+            var alt2 = Path.Combine(webRoot, "uploads");                      // fallback using WebRootPath
+
+            // Choose an existing candidate if present, otherwise create the preferred path
+            if (Directory.Exists(preferred))
+            {
+                _uploadPath = preferred;
+            }
+            else if (Directory.Exists(alt1))
+            {
+                _uploadPath = alt1;
+            }
+            else if (Directory.Exists(alt2))
+            {
+                _uploadPath = alt2;
+            }
+            else
+            {
+                // create the preferred one under site\wwwroot\uploads
+                _uploadPath = preferred;
+                Directory.CreateDirectory(_uploadPath);
+            }
 
             _logger.LogInformation("Upload path set to {UploadPath}", _uploadPath);
         }
@@ -96,6 +114,7 @@ namespace BestSellerPredictorMVC.Controllers
             }
             catch (System.Exception ex)
             {
+                // log but don't crash the request
                 _logger.LogError(ex, "Training failed after upload");
                 TempData["ModelTrained"] = false;
             }
@@ -139,9 +158,6 @@ namespace BestSellerPredictorMVC.Controllers
             var trainingFile = HttpContext.Session.GetString("TrainingFile");
             var predictionFile = HttpContext.Session.GetString("PredictionFile");
             var modelFile = HttpContext.Session.GetString("ModelPath");
-
-            _logger.LogInformation("Index: Session keys ModelPath={ModelPath} TrainingFile={TrainingFile} PredictionFile={PredictionFile}",
-                modelFile, trainingFile, predictionFile);
 
             var trainingDataExcel = new List<TrainingDataExcel>();
             var productList = new List<ProductSalesData>();

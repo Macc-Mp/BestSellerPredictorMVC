@@ -23,7 +23,7 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keysPath))
     .SetApplicationName("BestSellerPredictorMVC");
 
-// Configure Cookie TempData provider (force cookie provider and cookie settings)
+// Force cookie-based TempData provider and configure its cookie
 builder.Services.Configure<CookieTempDataProviderOptions>(options =>
 {
     options.Cookie.Name = ".AspNetCore.Mvc.CookieTempDataProvider";
@@ -32,8 +32,6 @@ builder.Services.Configure<CookieTempDataProviderOptions>(options =>
     options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
     options.Cookie.SameSite = SameSiteMode.None;
 });
-
-// Ensure CookieTempDataProvider is used (explicit)
 builder.Services.AddSingleton<ITempDataProvider, CookieTempDataProvider>();
 
 // Add MVC
@@ -47,7 +45,7 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
     options.Secure = CookieSecurePolicy.Always;
 });
 
-// Add session support (optional; you can keep it but TempData will use cookie provider now)
+// Session (in-memory ok for single instance; use Redis for scale-out)
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddSession(options =>
 {
@@ -71,7 +69,7 @@ app.UseStaticFiles();
 
 app.UseRouting();
 
-// Ensure cookie policy middleware runs before session
+// Ensure cookie policy runs before session
 app.UseCookiePolicy();
 
 app.UseSession();
