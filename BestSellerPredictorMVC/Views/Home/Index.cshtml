@@ -23,13 +23,17 @@
         @if (ViewBag.ModelTrained as bool? == true)
         {
             <form asp-action="UploadPredictionExcel" asp-controller="Home" enctype="multipart/form-data" method="post">
-                <input type="hidden" name="token" value="@(ViewBag.ModelToken as string ?? string.Empty)" />
                 <div class="form-group">
                     <label for="predictionExcelFile">Prediction Excel (.xlsx):</label>
                     <input type="file" name="predictionExcelFile" id="predictionExcelFile" class="form-control" accept=".xlsx" required />
                 </div>
                 <button type="submit" class="btn btn-primary mt-2">Upload & Predict</button>
             </form>
+
+            @if (TempData["PredictionExcelUploaded"] as bool? == true)
+            {
+                <div class="alert alert-success mt-2">Prediction file uploaded for your session.</div>
+            }
         }
         else
         {
@@ -113,22 +117,4 @@
             }
         </tbody>
     </table>
-}
-
-<!-- add temporary debug UI -->
-<button id="showSession" class="btn btn-secondary">Show Session Debug</button>
-<pre id="sessionOut" style="white-space:pre-wrap;"></pre>
-
-@section Scripts {
-<script>
-document.getElementById('showSession').addEventListener('click', async () => {
-  try {
-    const resp = await fetch('/Home/SessionDebug', { credentials: 'same-origin' });
-    const json = await resp.json();
-    document.getElementById('sessionOut').textContent = JSON.stringify(json, null, 2);
-  } catch (e) {
-    document.getElementById('sessionOut').textContent = 'Error: ' + e.message;
-  }
-});
-</script>
 }

@@ -1,5 +1,4 @@
 using BestSellerPredictorMVC.Models;
-using BestSellerPredictorMVC.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -24,19 +23,21 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keysPath))
     .SetApplicationName("BestSellerPredictorMVC");
 
+// Determine environment-specific cookie policies
+var isDev = builder.Environment.IsDevelopment();
+var cookieSecurePolicy = isDev ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
+var sameSiteMode = isDev ? SameSiteMode.Lax : SameSiteMode.None;
+
 // Force cookie-based TempData provider and configure its cookie
 builder.Services.Configure<CookieTempDataProviderOptions>(options =>
 {
     options.Cookie.Name = ".AspNetCore.Mvc.CookieTempDataProvider";
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-    options.Cookie.SameSite = SameSiteMode.None;
+    options.Cookie.SecurePolicy = cookieSecurePolicy;
+    options.Cookie.SameSite = sameSiteMode;
 });
 builder.Services.AddSingleton<ITempDataProvider, CookieTempDataProvider>();
-
-// Register ModelStore (durable JSON). Replace with DB/Blob in production.
-builder.Services.AddSingleton<ModelStore>();
 
 // Add MVC
 builder.Services.AddControllersWithViews();
@@ -46,7 +47,7 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
 {
     options.MinimumSameSitePolicy = SameSiteMode.Unspecified;
     options.HttpOnly = HttpOnlyPolicy.Always;
-    options.Secure = CookieSecurePolicy.Always;
+    options.Secure = cookieSecurePolicy;
 });
 
 // Session (in-memory ok for single instance; use Redis for scale-out)
@@ -54,10 +55,11 @@ builder.Services.AddDistributedMemoryCache();
 builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromHours(1);
+    options.Cookie.Name = ".AspNetCore.Session";
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
-    options.Cookie.SameSite = SameSiteMode.None;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.SameSite = sameSiteMode;
+    options.Cookie.SecurePolicy = cookieSecurePolicy;
 });
 
 var app = builder.Build();

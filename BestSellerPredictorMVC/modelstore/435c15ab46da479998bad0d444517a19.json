@@ -1,0 +1,10 @@
+{
+  "Token": "435c15ab46da479998bad0d444517a19",
+  "ModelFileName": "435c15ab46da479998bad0d444517a19_MLModel.zip",
+  "TrainingFileName": "435c15ab46da479998bad0d444517a19_HistoricalProductSales.xlsx",
+  "PredictionFileName": "",
+  "ModelMetric_Micro": "0.9000",
+  "ModelMetric_Macro": "0.9167",
+  "ModelMetric_LogLoss": "0.3621",
+  "CreatedUtc": "2025-12-26T14:15:25.2559735Z"
+}
