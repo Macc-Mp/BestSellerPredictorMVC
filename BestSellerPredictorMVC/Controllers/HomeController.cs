@@ -19,15 +19,13 @@ namespace BestSellerPredictorMVC.Controllers
         {
             _logger = logger;
 
-            // Resolve a canonical uploads folder. Prefer site\wwwroot\uploads but fall back to other sensible locations.
             var contentRoot = env?.ContentRootPath ?? Directory.GetCurrentDirectory();
             var webRoot = env?.WebRootPath ?? Path.Combine(contentRoot, "wwwroot");
 
-            var preferred = Path.Combine(contentRoot, "wwwroot", "uploads");   // typical
-            var alt1 = Path.Combine(contentRoot, "uploads");                  // alternative
-            var alt2 = Path.Combine(webRoot, "uploads");                      // fallback using WebRootPath
+            var preferred = Path.Combine(contentRoot, "wwwroot", "uploads");
+            var alt1 = Path.Combine(contentRoot, "uploads");
+            var alt2 = Path.Combine(webRoot, "uploads");
 
-            // Choose an existing candidate if present, otherwise create the preferred path
             if (Directory.Exists(preferred))
             {
                 _uploadPath = preferred;
@@ -42,7 +40,6 @@ namespace BestSellerPredictorMVC.Controllers
             }
             else
             {
-                // create the preferred one under site\wwwroot\uploads
                 _uploadPath = preferred;
                 Directory.CreateDirectory(_uploadPath);
             }
@@ -50,7 +47,6 @@ namespace BestSellerPredictorMVC.Controllers
             _logger.LogInformation("Upload path set to {UploadPath}", _uploadPath);
         }
 
-        // Upload training file, save with unique name, train immediately and store model filename + metrics in session
         [HttpPost]
         public async Task<IActionResult> UploadTrainingExcel(IFormFile trainingExcelFile)
         {
@@ -72,11 +68,9 @@ namespace BestSellerPredictorMVC.Controllers
 
             _logger.LogInformation("Training file saved to {FilePath} (exists={Exists})", filePath, System.IO.File.Exists(filePath));
 
-            // persist in session
             HttpContext.Session.SetString("TrainingFile", storedName);
             TempData["TrainingExcelUploaded"] = true;
 
-            // Train immediately for this session and save model with same prefix
             try
             {
                 var loader = new ExcelDataLoader();
@@ -114,7 +108,6 @@ namespace BestSellerPredictorMVC.Controllers
             }
             catch (System.Exception ex)
             {
-                // log but don't crash the request
                 _logger.LogError(ex, "Training failed after upload");
                 TempData["ModelTrained"] = false;
             }
@@ -122,10 +115,17 @@ namespace BestSellerPredictorMVC.Controllers
             return RedirectToAction("Index");
         }
 
-        // Upload prediction file, save with unique name and persist in session
         [HttpPost]
         public async Task<IActionResult> UploadPredictionExcel(IFormFile predictionExcelFile)
         {
+            // Diagnostic logs: confirm session + cookie + current session values
+            _logger.LogInformation("UploadPredictionExcel called. Request Cookies: {Cookies}", Request.Headers["Cookie"].ToString());
+            _logger.LogInformation("Session available: {IsAvailable}", HttpContext.Session.IsAvailable);
+            _logger.LogInformation("Session before upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
+                HttpContext.Session.GetString("ModelPath"),
+                HttpContext.Session.GetString("TrainingFile"),
+                HttpContext.Session.GetString("PredictionFile"));
+
             if (predictionExcelFile == null || predictionExcelFile.Length == 0)
             {
                 TempData["PredictionExcelUploaded"] = false;
@@ -147,23 +147,67 @@ namespace BestSellerPredictorMVC.Controllers
             HttpContext.Session.SetString("PredictionFile", storedName);
             TempData["PredictionExcelUploaded"] = true;
 
+            _logger.LogInformation("Session after upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
+                HttpContext.Session.GetString("ModelPath"),
+                HttpContext.Session.GetString("TrainingFile"),
+                HttpContext.Session.GetString("PredictionFile"));
+
             return RedirectToAction("Index");
+        }
+
+        // Diagnostic endpoint: returns cookie header, session state and uploads folder listing
+        [HttpGet]
+        public IActionResult SessionDebug()
+        {
+            var cookies = Request.Headers["Cookie"].ToString();
+            var isAvailable = HttpContext.Session.IsAvailable;
+            var modelPath = HttpContext.Session.GetString("ModelPath");
+            var trainingFile = HttpContext.Session.GetString("TrainingFile");
+            var predictionFile = HttpContext.Session.GetString("PredictionFile");
+
+            List<object> files = new();
+            try
+            {
+                if (Directory.Exists(_uploadPath))
+                {
+                    files = Directory.GetFiles(_uploadPath)
+                        .Select(f => new { Name = Path.GetFileName(f), Size = new FileInfo(f).Length })
+                        .Cast<object>()
+                        .ToList();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error listing uploads");
+            }
+
+            return Json(new
+            {
+                CookieHeader = cookies,
+                SessionAvailable = isAvailable,
+                ModelPath = modelPath,
+                TrainingFile = trainingFile,
+                PredictionFile = predictionFile,
+                Uploads = files,
+                UploadPath = _uploadPath
+            });
         }
 
         public IActionResult Index()
         {
             var loader = new ExcelDataLoader();
 
-            // Read session keys (per-user)
             var trainingFile = HttpContext.Session.GetString("TrainingFile");
             var predictionFile = HttpContext.Session.GetString("PredictionFile");
             var modelFile = HttpContext.Session.GetString("ModelPath");
+
+            _logger.LogInformation("Index: Session keys ModelPath={ModelPath} TrainingFile={TrainingFile} PredictionFile={PredictionFile}",
+                modelFile, trainingFile, predictionFile);
 
             var trainingDataExcel = new List<TrainingDataExcel>();
             var productList = new List<ProductSalesData>();
             var predictions = new List<ProductSalePrediction>();
 
-            // Only load training data when the session has a training file and file exists on disk
             if (!string.IsNullOrEmpty(trainingFile))
             {
                 var trainingPath = Path.Combine(_uploadPath, trainingFile);
@@ -182,14 +226,12 @@ namespace BestSellerPredictorMVC.Controllers
                 ViewBag.TrainingExcelUploaded = false;
             }
 
-            // Model trained for this session?
             if (!string.IsNullOrEmpty(modelFile))
             {
                 var modelPath = Path.Combine(_uploadPath, modelFile);
                 if (System.IO.File.Exists(modelPath))
                 {
                     ViewBag.ModelTrained = true;
-                    // expose metrics stored in session (strings)
                     ViewBag.ModelMetric_Micro = HttpContext.Session.GetString("ModelMetric_Micro");
                     ViewBag.ModelMetric_Macro = HttpContext.Session.GetString("ModelMetric_Macro");
                     ViewBag.ModelMetric_LogLoss = HttpContext.Session.GetString("ModelMetric_LogLoss");
@@ -204,7 +246,6 @@ namespace BestSellerPredictorMVC.Controllers
                 ViewBag.ModelTrained = false;
             }
 
-            // Only run predictions when the session has prediction file AND a model for the session exists
             if (!string.IsNullOrEmpty(predictionFile) && ViewBag.ModelTrained == true)
             {
                 var predictionPath = Path.Combine(_uploadPath, predictionFile);
@@ -233,7 +274,6 @@ namespace BestSellerPredictorMVC.Controllers
                 TrainingDataList = trainingDataExcel,
                 ProductList = productList,
                 PredictionResults = predictions,
-                // Keep null: metrics shown via ViewBag to avoid reconstructing ML types
                 ModelEvalMetrics = null
             };
 
