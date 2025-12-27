@@ -368,8 +368,65 @@ namespace BestSellerPredictorMVC.Controllers
 
         [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
         public IActionResult Error()
-        {
+        {   
             return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult ClearUploads()
+        {
+            try
+            {
+                var toRemove = new List<string?>
+                {
+                    HttpContext.Session.GetString("TrainingFile"),
+                    HttpContext.Session.GetString("PredictionFile"),
+                    HttpContext.Session.GetString("ModelPath")
+                };
+
+                foreach (var fname in toRemove.Where(f => !string.IsNullOrEmpty(f)))
+                {
+                    try
+                    {
+                        // Sanitize and ensure we only delete files inside the uploads folder
+                        var name = Path.GetFileName(fname!);
+                        if (string.IsNullOrEmpty(name)) continue;
+
+                        var full = Path.Combine(_uploadPath, name);
+                        if (System.IO.File.Exists(full))
+                        {
+                            System.IO.File.Delete(full);
+                            _logger.LogInformation("Deleted upload file {File}", full);
+                        }
+                        else
+                        {
+                            _logger.LogInformation("File to delete not found: {File}", full);
+                        }
+                    }
+                    catch (Exception exFile)
+                    {
+                        _logger.LogError(exFile, "Error deleting file {FileName}", fname);
+                    }
+                }
+
+                // Remove session keys and temp data flags
+                HttpContext.Session.Remove("TrainingFile");
+                HttpContext.Session.Remove("PredictionFile");
+                HttpContext.Session.Remove("ModelPath");
+                HttpContext.Session.Remove("ModelMetric_Micro");
+                HttpContext.Session.Remove("ModelMetric_Macro");
+                HttpContext.Session.Remove("ModelMetric_LogLoss");
+
+                TempData["UploadsCleared"] = true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing uploads for session");
+                TempData["UploadsCleared"] = false;
+            }
+
+            return RedirectToAction("Index");
         }
     }
 }
