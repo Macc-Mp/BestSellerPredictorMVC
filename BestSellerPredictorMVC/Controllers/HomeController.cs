@@ -88,46 +88,58 @@ namespace BestSellerPredictorMVC.Controllers
 
                 if (trainingData.Any())
                 {
-                    var modelFileName = $"{id}_MLModel.zip";
-                    var modelPath = Path.Combine(_uploadPath, modelFileName);
+                    // Record training start time to help find the model file produced by this run
+                    var trainingStartUtc = DateTime.UtcNow;
 
-                    var trainer = new MLModelTrainer(modelPath);
+                    var expectedModelFileName = $"{id}_MLModel.zip";
+                    var expectedModelPath = Path.Combine(_uploadPath, expectedModelFileName);
+
+                    var trainer = new MLModelTrainer(expectedModelPath);
                     var (model, metrics) = trainer.TrainAndSaveModel(trainingData);
 
-                    _logger.LogInformation("Trainer finished. Expected model path: {ModelPath}. Exists: {Exists}", modelPath, System.IO.File.Exists(modelPath));
+                    _logger.LogInformation("Trainer finished. Expected model path: {ModelPath}. Exists: {Exists}", expectedModelPath, System.IO.File.Exists(expectedModelPath));
 
-                    // Robust model file detection: prefer exact expected name, otherwise pick most recent match
+                    // Try to choose the model file:
                     string foundModelFileName = null;
-                    if (model != null)
-                    {
-                        if (System.IO.File.Exists(modelPath))
-                        {
-                            foundModelFileName = modelFileName;
-                        }
-                        else
-                        {
-                            try
-                            {
-                                var candidates = Directory.Exists(_uploadPath)
-                                    ? Directory.GetFiles(_uploadPath, "*MLModel.zip")
-                                        .OrderByDescending(f => new FileInfo(f).LastWriteTimeUtc)
-                                        .ToArray()
-                                    : Array.Empty<string>();
 
-                                if (candidates.Length > 0)
-                                {
-                                    foundModelFileName = Path.GetFileName(candidates[0]);
-                                    _logger.LogInformation("Fallback model file chosen: {Fallback}", candidates[0]);
-                                }
-                                else
-                                {
-                                    _logger.LogWarning("No candidate model files found in uploads folder as fallback.");
-                                }
-                            }
-                            catch (System.Exception ex)
+                    // 1) Prefer exact expected name if saved
+                    if (model != null && System.IO.File.Exists(expectedModelPath))
+                    {
+                        foundModelFileName = expectedModelFileName;
+                    }
+                    else
+                    {
+                        // 2) Fallback: find most-recent *_MLModel.zip written after training start (give small grace window)
+                        try
+                        {
+                            var graceWindow = TimeSpan.FromSeconds(5);
+                            var candidates = Directory.Exists(_uploadPath)
+                                ? Directory.GetFiles(_uploadPath, "*_MLModel.zip")
+                                    .Select(p => new FileInfo(p))
+                                    .Where(fi => fi.LastWriteTimeUtc >= trainingStartUtc.Subtract(graceWindow))
+                                    .OrderByDescending(fi => fi.LastWriteTimeUtc)
+                                    .ToArray()
+                                : Array.Empty<FileInfo>();
+
+                            if (candidates.Length > 0)
                             {
-                                _logger.LogError(ex, "Error while searching for fallback model file");
+                                foundModelFileName = candidates[0].Name;
+                                _logger.LogInformation("Fallback selected model file {File} (LastWrite={LastWrite})", candidates[0].FullName, candidates[0].LastWriteTimeUtc);
                             }
+                            else
+                            {
+                                // also accept a plain MLModel.zip as a last resort
+                                var plain = Path.Combine(_uploadPath, "MLModel.zip");
+                                if (System.IO.File.Exists(plain))
+                                {
+                                    foundModelFileName = Path.GetFileName(plain);
+                                    _logger.LogInformation("Fallback using plain MLModel.zip");
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error while searching for fallback model file");
                         }
                     }
 
