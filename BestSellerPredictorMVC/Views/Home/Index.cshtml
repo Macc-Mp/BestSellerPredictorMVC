@@ -25,7 +25,8 @@
     <div class="col-md-6">
         <h4>Step 2 — Upload Prediction Excel</h4>
 
-        @if (ViewBag.ModelTrained as bool? == true)
+        @* Enable Step 2 if either TempData (from the redirect) OR ViewBag (session-backed) signals the model is trained *@
+        @if ((TempData["ModelTrained"] as bool? == true) || (ViewBag.ModelTrained as bool? == true))
         {
             <form asp-action="UploadPredictionExcel" asp-controller="Home" enctype="multipart/form-data" method="post">
                 <div class="form-group">
