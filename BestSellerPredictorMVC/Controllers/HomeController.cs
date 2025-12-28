@@ -202,13 +202,79 @@ namespace BestSellerPredictorMVC.Controllers
         public async Task<IActionResult> UploadPredictionExcel(IFormFile predictionExcelFile)
         {
             // Improved logging for debugging
-            _logger.LogInformation("UploadPredictionExcel called. SessionId={SessionId} Cookies={Cookies} SessionAvailable={IsAvailable} ModelPath={ModelPath} TrainingFile={TrainingFile} PredictionFileBefore={PredictionFileBefore}",
+            _logger.LogInformation("UploadPredictionExcel called. SessionId={SessionId} Cookies={Cookies} SessionAvailable={IsAvailable} ModelPath={ModelPath} TrainingFile={TrainingFile} PredictionFileBefore={PredictionFile}",
                 HttpContext.Session?.Id,
                 Request.Headers["Cookie"].ToString(),
                 HttpContext.Session.IsAvailable,
                 HttpContext.Session.GetString("ModelPath"),
                 HttpContext.Session.GetString("TrainingFile"),
                 HttpContext.Session.GetString("PredictionFile"));
+
+            // If model path is missing in session, attempt to recover it from a token:
+            var modelPath = HttpContext.Session.GetString("ModelPath");
+            if (string.IsNullOrEmpty(modelPath))
+            {
+                string token = null;
+
+                // 1) Check TempData (use Peek so we don't consume it)
+                try { token ??= TempData.Peek("ModelToken") as string; } catch { /* ignore */ }
+
+                // 2) Check form (hidden input posted with the prediction form)
+                if (string.IsNullOrEmpty(token) && Request.HasFormContentType && Request.Form.ContainsKey("token"))
+                {
+                    token = Request.Form["token"].ToString();
+                }
+
+                // 3) Check query string
+                if (string.IsNullOrEmpty(token) && Request.Query.ContainsKey("token"))
+                {
+                    token = Request.Query["token"].ToString();
+                }
+
+                if (!string.IsNullOrEmpty(token))
+                {
+                    try
+                    {
+                        var record = await _modelStore.GetAsync(token.Trim());
+                        if (record != null && !string.IsNullOrEmpty(record.ModelFileName))
+                        {
+                            var expectedModelPath = Path.Combine(_uploadPath, record.ModelFileName);
+                            if (System.IO.File.Exists(expectedModelPath))
+                            {
+                                // Rehydrate session so subsequent logic finds the model
+                                HttpContext.Session.SetString("ModelPath", record.ModelFileName);
+                                if (!string.IsNullOrEmpty(record.TrainingFileName))
+                                    HttpContext.Session.SetString("TrainingFile", record.TrainingFileName);
+                                HttpContext.Session.SetString("ModelToken", record.Token);
+                                HttpContext.Session.SetString("ModelMetric_Micro", record.ModelMetric_Micro ?? string.Empty);
+                                HttpContext.Session.SetString("ModelMetric_Macro", record.ModelMetric_Macro ?? string.Empty);
+                                HttpContext.Session.SetString("ModelMetric_LogLoss", record.ModelMetric_LogLoss ?? string.Empty);
+
+                                try { await HttpContext.Session.CommitAsync(); } catch (Exception ex) { _logger.LogWarning(ex, "Session commit failed while rehydrating from token {Token}", token); }
+
+                                modelPath = record.ModelFileName;
+                                _logger.LogInformation("Rehydrated session from token {Token} -> ModelPath={ModelPath}", token, modelPath);
+                                TempData["LoadTokenSuccess"] = "Session rehydrated from token.";
+                            }
+                            else
+                            {
+                                _logger.LogWarning("Model file for token {Token} not found at expected path: {Path}", token, expectedModelPath);
+                                TempData["LoadTokenError"] = "Saved model file not found on server.";
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogWarning("No record found in ModelStore for token {Token}", token);
+                            TempData["LoadTokenError"] = "Model token not found.";
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error loading model record for token {Token}", token);
+                        TempData["LoadTokenError"] = "Error loading model token (see logs).";
+                    }
+                }
+            }
 
             if (predictionExcelFile == null || predictionExcelFile.Length == 0)
             {
@@ -249,7 +315,7 @@ namespace BestSellerPredictorMVC.Controllers
                 // If we have a token for this model, update the persistent record with the prediction filename
                 try
                 {
-                    var token = HttpContext.Session.GetString("ModelToken");
+                    var token = HttpContext.Session.GetString("ModelToken") ?? (TempData.Peek("ModelToken") as string);
                     if (!string.IsNullOrEmpty(token))
                     {
                         var existing = await _modelStore.GetAsync(token);
@@ -266,7 +332,7 @@ namespace BestSellerPredictorMVC.Controllers
                     }
                     else
                     {
-                        _logger.LogInformation("No ModelToken in session to associate prediction file {Prediction}", storedName);
+                        _logger.LogInformation("No ModelToken available to associate prediction file {Prediction}", storedName);
                     }
                 }
                 catch (Exception ex)
@@ -275,11 +341,11 @@ namespace BestSellerPredictorMVC.Controllers
                 }
 
                 // If model is not yet available in session or model file doesn't exist yet, mark as pending
-                var modelFile = HttpContext.Session.GetString("ModelPath");
-                if (string.IsNullOrEmpty(modelFile) || !System.IO.File.Exists(Path.Combine(_uploadPath, modelFile)))
+                var modelFileNow = HttpContext.Session.GetString("ModelPath");
+                if (string.IsNullOrEmpty(modelFileNow) || !System.IO.File.Exists(Path.Combine(_uploadPath, modelFileNow)))
                 {
                     TempData["PredictionPending"] = "Model is not ready yet. The uploaded prediction will be processed after training completes.";
-                    _logger.LogInformation("Prediction uploaded but model not ready for session. PredictionFile={PredictionFile} ModelPath={ModelPath}", storedName, modelFile);
+                    _logger.LogInformation("Prediction uploaded but model not ready for session. PredictionFile={PredictionFile} ModelPath={ModelPath}", storedName, modelFileNow);
                 }
             }
             catch (Exception ex)

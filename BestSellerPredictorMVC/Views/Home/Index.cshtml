@@ -166,3 +166,5 @@
 {
     <div class="alert alert-danger mt-2">@TempData["PredictionError"]</div>
 }
+
+<input type="hidden" name="token" value="@(ViewBag.ModelToken ?? String.Empty)" />
