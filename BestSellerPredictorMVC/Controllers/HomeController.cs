@@ -21,15 +21,8 @@ namespace BestSellerPredictorMVC.Controllers
             _logger = logger;
 
             var contentRoot = env?.ContentRootPath ?? Directory.GetCurrentDirectory();
+            // Prefer the actual web root to avoid duplicate "wwwroot"
             var webRoot = env?.WebRootPath ?? Path.Combine(contentRoot, "wwwroot");
-
-            // Normalize duplicate "wwwroot\\wwwroot" that can appear on some deployments
-            var duplicateSegment = Path.Combine("wwwroot", "wwwroot");
-            if (!string.IsNullOrEmpty(webRoot) && webRoot.IndexOf(duplicateSegment, StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                webRoot = webRoot.Replace(duplicateSegment, "wwwroot", StringComparison.OrdinalIgnoreCase);
-            }
-
             var uploadDir = Path.Combine(webRoot, "uploads");
 
             if (!Directory.Exists(uploadDir))
@@ -53,15 +46,8 @@ namespace BestSellerPredictorMVC.Controllers
             }
 
             var originalFileName = Path.GetFileName(trainingExcelFile.FileName);
-            // Build name: {sessionId}_{utcTimestamp}_{originalFileName}
-            var sessionId = HttpContext?.Session?.Id;
-            if (string.IsNullOrEmpty(sessionId))
-            {
-                // fallback if session id isn't available
-                sessionId = Guid.NewGuid().ToString("N");
-            }
-            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-            var storedName = $"{sessionId}_{timestamp}_{originalFileName}";
+            var id = Guid.NewGuid().ToString("N");
+            var storedName = $"{id}_{originalFileName}";
             var filePath = Path.Combine(_uploadPath, storedName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -94,7 +80,7 @@ namespace BestSellerPredictorMVC.Controllers
 
                 if (trainingData.Any())
                 {
-                    var modelFileName = $"{sessionId}_{timestamp}_MLModel.zip";
+                    var modelFileName = $"{id}_MLModel.zip";
                     var modelPath = Path.Combine(_uploadPath, modelFileName);
 
                     // Pass controller logger into trainer so ML logs go to App Service logs / App Insights
@@ -150,13 +136,8 @@ namespace BestSellerPredictorMVC.Controllers
             }
 
             var originalFileName = Path.GetFileName(predictionExcelFile.FileName);
-            var sessionId = HttpContext?.Session?.Id;
-            if (string.IsNullOrEmpty(sessionId))
-            {
-                sessionId = Guid.NewGuid().ToString("N");
-            }
-            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-            var storedName = $"{sessionId}_{timestamp}_{originalFileName}";
+            var id = Guid.NewGuid().ToString("N");
+            var storedName = $"{id}_{originalFileName}";
             var filePath = Path.Combine(_uploadPath, storedName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -276,7 +257,11 @@ namespace BestSellerPredictorMVC.Controllers
                     productList = loader.LoadData(predictionPath).ToList();
                     if (productList.Any())
                     {
-                        var predictor = new MLModelPredictor(Path.Combine(_uploadPath, HttpContext.Session.GetString("ModelPath")!));
+                        // Log the exact model path we're about to load so you can confirm whether it points to wwwroot\wwwroot
+                        var modelFullPath = Path.Combine(_uploadPath, HttpContext.Session.GetString("ModelPath")!);
+                        _logger.LogInformation("Loading ML model from {ModelFullPath} (exists={Exists})", modelFullPath, System.IO.File.Exists(modelFullPath));
+
+                        var predictor = new MLModelPredictor(modelFullPath);
                         predictions = predictor.PredictBatch(productList).ToList();
                         ViewBag.PredictionExcelUploaded = true;
                     }
