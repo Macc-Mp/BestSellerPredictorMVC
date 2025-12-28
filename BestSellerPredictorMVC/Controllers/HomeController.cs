@@ -88,7 +88,6 @@ namespace BestSellerPredictorMVC.Controllers
             HttpContext.Session.SetString("TrainingFile", storedName);
             TempData["TrainingExcelUploaded"] = true;
 
-            // Ensure session is persisted before redirect
             try
             {
                 await HttpContext.Session.CommitAsync();
@@ -150,7 +149,7 @@ namespace BestSellerPredictorMVC.Controllers
                     else
                     {
                         TempData["ModelTrained"] = false;
-                        _logger.LogWarning("Model not set in session because model==null or file not found on disk at {ExpectedPath}", modelPath);
+                        _logger.LogWarning("Model not set in session because model==null or file not found at {ExpectedPath}", modelPath);
                     }
                 }
                 else
@@ -159,9 +158,9 @@ namespace BestSellerPredictorMVC.Controllers
                     _logger.LogWarning("No training data rows after mapping; skipping training.");
                 }
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                _logger.LogError(ex, "Training failed after upload. Exception: {ExceptionMessage}", ex.Message);
+                _logger.LogError(ex, "Training failed after upload. Exception: {Message}", ex.Message);
                 TempData["ModelTrained"] = false;
             }
 
@@ -202,7 +201,6 @@ namespace BestSellerPredictorMVC.Controllers
 
             try
             {
-                // Ensure the session write completes before we redirect
                 await HttpContext.Session.CommitAsync();
                 _logger.LogInformation("Session committed after setting PredictionFile={PredictionFile}", storedName);
             }
