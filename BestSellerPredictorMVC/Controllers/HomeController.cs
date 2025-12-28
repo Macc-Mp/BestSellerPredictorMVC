@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using BestSellerPredictorMVC.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -20,8 +21,15 @@ namespace BestSellerPredictorMVC.Controllers
             _logger = logger;
 
             var contentRoot = env?.ContentRootPath ?? Directory.GetCurrentDirectory();
-            // Prefer the actual web root to avoid duplicate "wwwroot"
             var webRoot = env?.WebRootPath ?? Path.Combine(contentRoot, "wwwroot");
+
+            // Normalize duplicate "wwwroot\\wwwroot" that can appear on some deployments
+            var duplicateSegment = Path.Combine("wwwroot", "wwwroot");
+            if (!string.IsNullOrEmpty(webRoot) && webRoot.IndexOf(duplicateSegment, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                webRoot = webRoot.Replace(duplicateSegment, "wwwroot", StringComparison.OrdinalIgnoreCase);
+            }
+
             var uploadDir = Path.Combine(webRoot, "uploads");
 
             if (!Directory.Exists(uploadDir))
@@ -120,7 +128,6 @@ namespace BestSellerPredictorMVC.Controllers
         [HttpPost]
         public async Task<IActionResult> UploadPredictionExcel(IFormFile predictionExcelFile)
         {
-            // Diagnostic logs: confirm session + cookie + current session values
             _logger.LogInformation("UploadPredictionExcel called. Request Cookies: {Cookies}", Request.Headers["Cookie"].ToString());
             _logger.LogInformation("Session available: {IsAvailable}", HttpContext.Session.IsAvailable);
             _logger.LogInformation("Session before upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
@@ -157,7 +164,6 @@ namespace BestSellerPredictorMVC.Controllers
             return RedirectToAction("Index");
         }
 
-        // Diagnostic endpoint: returns cookie header, session state and uploads folder listing
         [HttpGet]
         public IActionResult SessionDebug()
         {
@@ -276,7 +282,6 @@ namespace BestSellerPredictorMVC.Controllers
                 TrainingDataList = trainingDataExcel,
                 ProductList = productList,
                 PredictionResults = predictions,
-                // Keep null: metrics shown via ViewBag to avoid reconstructing ML types
                 ModelEvalMetrics = null
             };
 
