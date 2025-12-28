@@ -47,6 +47,31 @@ namespace BestSellerPredictorMVC.Controllers
             _logger.LogInformation("Upload path set to {UploadPath}", _uploadPath);
         }
 
+        // Returns a per-session folder path under the configured uploads root.
+        // Stores a stable folder id in session ("SessionFolderId") so subsequent requests use the same folder.
+        private string GetSessionUploadFolder()
+        {
+            // Try read persisted session folder id
+            var folderId = HttpContext.Session.GetString("SessionFolderId");
+            if (string.IsNullOrEmpty(folderId))
+            {
+                // Prefer the session id if available
+                folderId = HttpContext.Session.Id;
+                if (string.IsNullOrEmpty(folderId))
+                {
+                    // Last resort: create a GUID and persist it into session
+                    folderId = Guid.NewGuid().ToString("N");
+                }
+                HttpContext.Session.SetString("SessionFolderId", folderId);
+            }
+
+            var folder = Path.Combine(_uploadPath, folderId);
+            if (!Directory.Exists(folder))
+                Directory.CreateDirectory(folder);
+
+            return folder;
+        }
+
         [HttpPost]
         public async Task<IActionResult> UploadTrainingExcel(IFormFile trainingExcelFile)
         {
@@ -59,7 +84,9 @@ namespace BestSellerPredictorMVC.Controllers
             var originalFileName = Path.GetFileName(trainingExcelFile.FileName);
             var id = Guid.NewGuid().ToString("N");
             var storedName = $"{id}_{originalFileName}";
-            var filePath = Path.Combine(_uploadPath, storedName);
+
+            var sessionFolder = GetSessionUploadFolder();
+            var filePath = Path.Combine(sessionFolder, storedName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
             {
@@ -82,64 +109,61 @@ namespace BestSellerPredictorMVC.Controllers
                     ProductName = td.ProductName,
                     Category = td.Category,
                     UnitPrice = td.UnitPrice,
+                    // keep previous mapping (QuantitySold used as numeric feature)
                     CurrentStock = td.QuantitySold,
                     SalePerformanceCategory = td.SalePerformanceCategory
                 }).ToList();
 
                 if (trainingData.Any())
                 {
-                    // Record training start time to help find the model file produced by this run
-                    var trainingStartUtc = DateTime.UtcNow;
-
-                    var expectedModelFileName = $"{id}_MLModel.zip";
-                    var expectedModelPath = Path.Combine(_uploadPath, expectedModelFileName);
+                    var modelFileName = $"{id}_MLModel.zip";
+                    var expectedModelPath = Path.Combine(sessionFolder, modelFileName);
 
                     var trainer = new MLModelTrainer(expectedModelPath);
                     var (model, metrics) = trainer.TrainAndSaveModel(trainingData);
 
                     _logger.LogInformation("Trainer finished. Expected model path: {ModelPath}. Exists: {Exists}", expectedModelPath, System.IO.File.Exists(expectedModelPath));
 
-                    // Try to choose the model file:
+                    // Robust model file detection limited to the session folder
                     string foundModelFileName = null;
-
-                    // 1) Prefer exact expected name if saved
-                    if (model != null && System.IO.File.Exists(expectedModelPath))
+                    if (model != null)
                     {
-                        foundModelFileName = expectedModelFileName;
-                    }
-                    else
-                    {
-                        // 2) Fallback: find most-recent *_MLModel.zip written after training start (give small grace window)
-                        try
+                        if (System.IO.File.Exists(expectedModelPath))
                         {
-                            var graceWindow = TimeSpan.FromSeconds(5);
-                            var candidates = Directory.Exists(_uploadPath)
-                                ? Directory.GetFiles(_uploadPath, "*_MLModel.zip")
-                                    .Select(p => new FileInfo(p))
-                                    .Where(fi => fi.LastWriteTimeUtc >= trainingStartUtc.Subtract(graceWindow))
-                                    .OrderByDescending(fi => fi.LastWriteTimeUtc)
-                                    .ToArray()
-                                : Array.Empty<FileInfo>();
+                            foundModelFileName = modelFileName;
+                        }
+                        else
+                        {
+                            try
+                            {
+                                var graceWindow = TimeSpan.FromSeconds(5);
+                                var candidates = Directory.Exists(sessionFolder)
+                                    ? Directory.GetFiles(sessionFolder, "*_MLModel.zip")
+                                        .Select(p => new FileInfo(p))
+                                        .Where(fi => fi.LastWriteTimeUtc >= DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(10))) // broad window
+                                        .OrderByDescending(fi => fi.LastWriteTimeUtc)
+                                        .ToArray()
+                                    : Array.Empty<FileInfo>();
 
-                            if (candidates.Length > 0)
-                            {
-                                foundModelFileName = candidates[0].Name;
-                                _logger.LogInformation("Fallback selected model file {File} (LastWrite={LastWrite})", candidates[0].FullName, candidates[0].LastWriteTimeUtc);
-                            }
-                            else
-                            {
-                                // also accept a plain MLModel.zip as a last resort
-                                var plain = Path.Combine(_uploadPath, "MLModel.zip");
-                                if (System.IO.File.Exists(plain))
+                                if (candidates.Length > 0)
                                 {
-                                    foundModelFileName = Path.GetFileName(plain);
-                                    _logger.LogInformation("Fallback using plain MLModel.zip");
+                                    foundModelFileName = candidates[0].Name;
+                                    _logger.LogInformation("Fallback model file chosen from session folder: {Fallback}", candidates[0].FullName);
+                                }
+                                else
+                                {
+                                    var plain = Path.Combine(sessionFolder, "MLModel.zip");
+                                    if (System.IO.File.Exists(plain))
+                                    {
+                                        foundModelFileName = Path.GetFileName(plain);
+                                        _logger.LogInformation("Fallback using plain MLModel.zip in session folder");
+                                    }
                                 }
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error while searching for fallback model file");
+                            catch (System.Exception ex)
+                            {
+                                _logger.LogError(ex, "Error while searching session folder for fallback model file");
+                            }
                         }
                     }
 
@@ -155,7 +179,7 @@ namespace BestSellerPredictorMVC.Controllers
                     }
                     else
                     {
-                        _logger.LogWarning("Model was trained but no model file was found to set in session.");
+                        _logger.LogWarning("Model was trained but no model file was found in session folder to set in session.");
                         TempData["ModelTrained"] = false;
                     }
                 }
@@ -209,7 +233,6 @@ namespace BestSellerPredictorMVC.Controllers
             if (predictionExcelFile == null || predictionExcelFile.Length == 0)
             {
                 TempData["PredictionExcelUploaded"] = false;
-                // Log explicit null/empty reason to help debugging
                 _logger.LogWarning("predictionExcelFile is null or empty. Param null={IsNull} Length={Length}",
                     predictionExcelFile == null, predictionExcelFile?.Length);
                 return RedirectToAction("Index");
@@ -218,7 +241,9 @@ namespace BestSellerPredictorMVC.Controllers
             var originalFileName = Path.GetFileName(predictionExcelFile.FileName);
             var id = Guid.NewGuid().ToString("N");
             var storedName = $"{id}_{originalFileName}";
-            var filePath = Path.Combine(_uploadPath, storedName);
+
+            var sessionFolder = GetSessionUploadFolder();
+            var filePath = Path.Combine(sessionFolder, storedName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
             {
@@ -238,7 +263,7 @@ namespace BestSellerPredictorMVC.Controllers
             return RedirectToAction("Index");
         }
 
-        // Diagnostic endpoint: returns cookie header, session state and uploads folder listing
+        // Diagnostic endpoint: returns cookie header, session state and session-folder uploads listing
         [HttpGet]
         public IActionResult SessionDebug()
         {
@@ -249,11 +274,12 @@ namespace BestSellerPredictorMVC.Controllers
             var predictionFile = HttpContext.Session.GetString("PredictionFile");
 
             List<object> files = new();
+            string sessionFolder = GetSessionUploadFolder();
             try
             {
-                if (Directory.Exists(_uploadPath))
+                if (Directory.Exists(sessionFolder))
                 {
-                    files = Directory.GetFiles(_uploadPath)
+                    files = Directory.GetFiles(sessionFolder)
                         .Select(f => new { Name = Path.GetFileName(f), Size = new FileInfo(f).Length })
                         .Cast<object>()
                         .ToList();
@@ -261,7 +287,7 @@ namespace BestSellerPredictorMVC.Controllers
             }
             catch (System.Exception ex)
             {
-                _logger.LogError(ex, "Error listing uploads");
+                _logger.LogError(ex, "Error listing session uploads");
             }
 
             return Json(new
@@ -272,7 +298,7 @@ namespace BestSellerPredictorMVC.Controllers
                 TrainingFile = trainingFile,
                 PredictionFile = predictionFile,
                 Uploads = files,
-                UploadPath = _uploadPath
+                UploadPath = sessionFolder
             });
         }
 
@@ -291,9 +317,11 @@ namespace BestSellerPredictorMVC.Controllers
             var productList = new List<ProductSalesData>();
             var predictions = new List<ProductSalePrediction>();
 
+            var sessionFolder = GetSessionUploadFolder();
+
             if (!string.IsNullOrEmpty(trainingFile))
             {
-                var trainingPath = Path.Combine(_uploadPath, trainingFile);
+                var trainingPath = Path.Combine(sessionFolder, trainingFile);
                 if (System.IO.File.Exists(trainingPath))
                 {
                     trainingDataExcel = loader.LoadTrainingData(trainingPath).ToList();
@@ -311,7 +339,7 @@ namespace BestSellerPredictorMVC.Controllers
 
             if (!string.IsNullOrEmpty(modelFile))
             {
-                var modelPath = Path.Combine(_uploadPath, modelFile);
+                var modelPath = Path.Combine(sessionFolder, modelFile);
                 if (System.IO.File.Exists(modelPath))
                 {
                     ViewBag.ModelTrained = true;
@@ -331,13 +359,14 @@ namespace BestSellerPredictorMVC.Controllers
 
             if (!string.IsNullOrEmpty(predictionFile) && ViewBag.ModelTrained == true)
             {
-                var predictionPath = Path.Combine(_uploadPath, predictionFile);
+                var predictionPath = Path.Combine(sessionFolder, predictionFile);
                 if (System.IO.File.Exists(predictionPath))
                 {
                     productList = loader.LoadData(predictionPath).ToList();
                     if (productList.Any())
                     {
-                        var predictor = new MLModelPredictor(Path.Combine(_uploadPath, HttpContext.Session.GetString("ModelPath")!));
+                        var modelFullPath = Path.Combine(sessionFolder, HttpContext.Session.GetString("ModelPath")!);
+                        var predictor = new MLModelPredictor(modelFullPath);
                         predictions = predictor.PredictBatch(productList).ToList();
                         ViewBag.PredictionExcelUploaded = true;
                     }
@@ -364,53 +393,35 @@ namespace BestSellerPredictorMVC.Controllers
             return View(viewModel);
         }
 
-        public IActionResult Privacy() => View();
-
-        [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
-        public IActionResult Error()
-        {   
-            return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
-        }
-
         [HttpPost]
         [ValidateAntiForgeryToken]
         public IActionResult ClearUploads()
         {
             try
             {
-                var toRemove = new List<string?>
+                var sessionFolder = GetSessionUploadFolder();
+                if (Directory.Exists(sessionFolder))
                 {
-                    HttpContext.Session.GetString("TrainingFile"),
-                    HttpContext.Session.GetString("PredictionFile"),
-                    HttpContext.Session.GetString("ModelPath")
-                };
+                    foreach (var file in Directory.GetFiles(sessionFolder))
+                    {
+                        try
+                        {
+                            System.IO.File.Delete(file);
+                            _logger.LogInformation("Deleted session upload file {File}", file);
+                        }
+                        catch (Exception exFile)
+                        {
+                            _logger.LogError(exFile, "Error deleting file {File}", file);
+                        }
+                    }
 
-                foreach (var fname in toRemove.Where(f => !string.IsNullOrEmpty(f)))
-                {
                     try
                     {
-                        // Sanitize and ensure we only delete files inside the uploads folder
-                        var name = Path.GetFileName(fname!);
-                        if (string.IsNullOrEmpty(name)) continue;
-
-                        var full = Path.Combine(_uploadPath, name);
-                        if (System.IO.File.Exists(full))
-                        {
-                            System.IO.File.Delete(full);
-                            _logger.LogInformation("Deleted upload file {File}", full);
-                        }
-                        else
-                        {
-                            _logger.LogInformation("File to delete not found: {File}", full);
-                        }
+                        Directory.Delete(sessionFolder, recursive: true);
                     }
-                    catch (Exception exFile)
-                    {
-                        _logger.LogError(exFile, "Error deleting file {FileName}", fname);
-                    }
+                    catch { /* non-fatal */ }
                 }
 
-                // Remove session keys and temp data flags
                 HttpContext.Session.Remove("TrainingFile");
                 HttpContext.Session.Remove("PredictionFile");
                 HttpContext.Session.Remove("ModelPath");
@@ -427,6 +438,14 @@ namespace BestSellerPredictorMVC.Controllers
             }
 
             return RedirectToAction("Index");
+        }
+
+        public IActionResult Privacy() => View();
+
+        [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
+        public IActionResult Error()
+        {
+            return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
         }
     }
 }
