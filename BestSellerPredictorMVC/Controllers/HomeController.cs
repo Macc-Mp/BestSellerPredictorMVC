@@ -53,8 +53,15 @@ namespace BestSellerPredictorMVC.Controllers
             }
 
             var originalFileName = Path.GetFileName(trainingExcelFile.FileName);
-            var id = Guid.NewGuid().ToString("N");
-            var storedName = $"{id}_{originalFileName}";
+            // Build name: {sessionId}_{utcTimestamp}_{originalFileName}
+            var sessionId = HttpContext?.Session?.Id;
+            if (string.IsNullOrEmpty(sessionId))
+            {
+                // fallback if session id isn't available
+                sessionId = Guid.NewGuid().ToString("N");
+            }
+            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+            var storedName = $"{sessionId}_{timestamp}_{originalFileName}";
             var filePath = Path.Combine(_uploadPath, storedName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -87,7 +94,7 @@ namespace BestSellerPredictorMVC.Controllers
 
                 if (trainingData.Any())
                 {
-                    var modelFileName = $"{id}_MLModel.zip";
+                    var modelFileName = $"{sessionId}_{timestamp}_MLModel.zip";
                     var modelPath = Path.Combine(_uploadPath, modelFileName);
 
                     // Pass controller logger into trainer so ML logs go to App Service logs / App Insights
@@ -128,6 +135,7 @@ namespace BestSellerPredictorMVC.Controllers
         [HttpPost]
         public async Task<IActionResult> UploadPredictionExcel(IFormFile predictionExcelFile)
         {
+            // Diagnostic logs: confirm session + cookie + current session values
             _logger.LogInformation("UploadPredictionExcel called. Request Cookies: {Cookies}", Request.Headers["Cookie"].ToString());
             _logger.LogInformation("Session available: {IsAvailable}", HttpContext.Session.IsAvailable);
             _logger.LogInformation("Session before upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
@@ -142,8 +150,13 @@ namespace BestSellerPredictorMVC.Controllers
             }
 
             var originalFileName = Path.GetFileName(predictionExcelFile.FileName);
-            var id = Guid.NewGuid().ToString("N");
-            var storedName = $"{id}_{originalFileName}";
+            var sessionId = HttpContext?.Session?.Id;
+            if (string.IsNullOrEmpty(sessionId))
+            {
+                sessionId = Guid.NewGuid().ToString("N");
+            }
+            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+            var storedName = $"{sessionId}_{timestamp}_{originalFileName}";
             var filePath = Path.Combine(_uploadPath, storedName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -164,6 +177,7 @@ namespace BestSellerPredictorMVC.Controllers
             return RedirectToAction("Index");
         }
 
+        // Diagnostic endpoint: returns cookie header, session state and uploads folder listing
         [HttpGet]
         public IActionResult SessionDebug()
         {
@@ -282,6 +296,7 @@ namespace BestSellerPredictorMVC.Controllers
                 TrainingDataList = trainingDataExcel,
                 ProductList = productList,
                 PredictionResults = predictions,
+                // Keep null: metrics shown via ViewBag to avoid reconstructing ML types
                 ModelEvalMetrics = null
             };
 
