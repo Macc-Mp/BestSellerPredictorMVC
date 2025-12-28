@@ -21,8 +21,34 @@ namespace BestSellerPredictorMVC.Controllers
             _logger = logger;
 
             var contentRoot = env?.ContentRootPath ?? Directory.GetCurrentDirectory();
-            // Prefer the actual web root to avoid duplicate "wwwroot"
-            var webRoot = env?.WebRootPath ?? Path.Combine(contentRoot, "wwwroot");
+
+            // Prefer the actual web root; if it's not set, use contentRoot + "wwwroot"
+            var webRoot = env?.WebRootPath;
+            if (string.IsNullOrEmpty(webRoot))
+            {
+                webRoot = Path.Combine(contentRoot, "wwwroot");
+            }
+
+            // Normalize accidental duplication like "...\\wwwroot\\wwwroot" -> keep single "wwwroot"
+            try
+            {
+                var duplicateSegment = Path.Combine("wwwroot", "wwwroot");
+                var idx = webRoot.IndexOf(duplicateSegment, StringComparison.OrdinalIgnoreCase);
+                if (idx >= 0)
+                {
+                    // Keep up to the first "wwwroot"
+                    var firstIndex = webRoot.IndexOf("wwwroot", StringComparison.OrdinalIgnoreCase);
+                    if (firstIndex >= 0)
+                    {
+                        webRoot = webRoot.Substring(0, firstIndex + "wwwroot".Length);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error normalizing webRoot path; using value as-is: {WebRoot}", webRoot);
+            }
+
             var uploadDir = Path.Combine(webRoot, "uploads");
 
             if (!Directory.Exists(uploadDir))
@@ -46,15 +72,10 @@ namespace BestSellerPredictorMVC.Controllers
             }
 
             var originalFileName = Path.GetFileName(trainingExcelFile.FileName);
-            // Build name: {sessionId}_{utcTimestamp}_{originalFileName}
-            var sessionId = HttpContext?.Session?.Id;
-            if (string.IsNullOrEmpty(sessionId))
-            {
-                // fallback if session id isn't available
-                sessionId = Guid.NewGuid().ToString("N");
-            }
+            // Use a per-file GUID instead of relying on Session.Id (more robust)
+            var fileGuid = Guid.NewGuid().ToString("N");
             var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-            var storedName = $"{sessionId}_{timestamp}_{originalFileName}";
+            var storedName = $"{fileGuid}_{timestamp}_{originalFileName}";
             var filePath = Path.Combine(_uploadPath, storedName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -62,10 +83,21 @@ namespace BestSellerPredictorMVC.Controllers
                 await trainingExcelFile.CopyToAsync(stream);
             }
 
-            _logger.LogInformation("Training file saved to {FilePath} (exists={Exists})", filePath, System.IO.File.Exists(filePath));
+            _logger.LogInformation("Training file saved to {FilePath} as {StoredName} (exists={Exists})", filePath, storedName, System.IO.File.Exists(filePath));
 
             HttpContext.Session.SetString("TrainingFile", storedName);
             TempData["TrainingExcelUploaded"] = true;
+
+            // Ensure session is persisted before redirect
+            try
+            {
+                await HttpContext.Session.CommitAsync();
+                _logger.LogInformation("Session committed after setting TrainingFile={TrainingFile}", storedName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to commit session after setting TrainingFile");
+            }
 
             try
             {
@@ -87,7 +119,7 @@ namespace BestSellerPredictorMVC.Controllers
 
                 if (trainingData.Any())
                 {
-                    var modelFileName = $"{sessionId}_{timestamp}_MLModel.zip";
+                    var modelFileName = $"{fileGuid}_{timestamp}_MLModel.zip";
                     var modelPath = Path.Combine(_uploadPath, modelFileName);
 
                     // Pass controller logger into trainer so ML logs go to App Service logs / App Insights
@@ -103,6 +135,17 @@ namespace BestSellerPredictorMVC.Controllers
                         HttpContext.Session.SetString("ModelMetric_Macro", metrics?.MacroAccuracy.ToString("F4") ?? string.Empty);
                         HttpContext.Session.SetString("ModelMetric_LogLoss", metrics?.LogLoss.ToString("F4") ?? string.Empty);
                         TempData["ModelTrained"] = true;
+
+                        // Commit again to persist model path & metrics
+                        try
+                        {
+                            await HttpContext.Session.CommitAsync();
+                            _logger.LogInformation("Session committed after setting ModelPath={ModelPath}", modelFileName);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to commit session after setting ModelPath");
+                        }
                     }
                     else
                     {
@@ -128,6 +171,7 @@ namespace BestSellerPredictorMVC.Controllers
         [HttpPost]
         public async Task<IActionResult> UploadPredictionExcel(IFormFile predictionExcelFile)
         {
+            // Diagnostic logs: confirm session + cookie + current session values
             _logger.LogInformation("UploadPredictionExcel called. Request Cookies: {Cookies}", Request.Headers["Cookie"].ToString());
             _logger.LogInformation("Session available: {IsAvailable}", HttpContext.Session.IsAvailable);
             _logger.LogInformation("Session before upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
@@ -154,9 +198,10 @@ namespace BestSellerPredictorMVC.Controllers
 
             _logger.LogInformation("Prediction file saved to {FilePath} as {StoredName} (exists={Exists})", filePath, storedName, System.IO.File.Exists(filePath));
 
-            // store the actual filename in session (Index() reads this exact string)
             HttpContext.Session.SetString("PredictionFile", storedName);
-            // force session to persist now (helps when redirecting immediately)
+            TempData["PredictionExcelUploaded"] = true;
+
+            // Force session to persist now (helps when redirecting immediately)
             try
             {
                 await HttpContext.Session.CommitAsync();
@@ -166,8 +211,6 @@ namespace BestSellerPredictorMVC.Controllers
             {
                 _logger.LogError(ex, "Failed to commit session after setting PredictionFile");
             }
-
-            TempData["PredictionExcelUploaded"] = true;
 
             _logger.LogInformation("Session after upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
                 HttpContext.Session.GetString("ModelPath"),
