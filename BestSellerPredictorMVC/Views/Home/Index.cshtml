@@ -25,8 +25,16 @@
     <div class="col-md-6">
         <h4>Step 2 — Upload Prediction Excel</h4>
 
-        @* Enable Step 2 if either TempData (from the redirect) OR ViewBag (session-backed) signals the model is trained *@
-        @if ((TempData["ModelTrained"] as bool? == true) || (ViewBag.ModelTrained as bool? == true))
+        @* Enable Step 2 if:
+            - model is already trained (ViewBag or TempData), OR
+            - a training file was just uploaded (TempData["TrainingExcelUploaded"]) so user can upload a prediction while training runs.
+           If only TrainingExcelUploaded is present, show a small note so user knows training may still be in progress. *@
+        @{
+            var modelReady = (TempData["ModelTrained"] as bool? == true) || (ViewBag.ModelTrained as bool? == true);
+            var trainingUploaded = (TempData["TrainingExcelUploaded"] as bool? == true);
+        }
+
+        @if (modelReady || trainingUploaded)
         {
             <form asp-action="UploadPredictionExcel" asp-controller="Home" enctype="multipart/form-data" method="post">
                 <div class="form-group">
@@ -35,6 +43,13 @@
                 </div>
                 <button type="submit" class="btn btn-primary mt-2">Upload & Predict</button>
             </form>
+
+            @if (trainingUploaded && !modelReady)
+            {
+                <div class="alert alert-warning mt-2">
+                    Model training is in progress. You may upload a prediction file now — it will be processed once training completes for your session.
+                </div>
+            }
 
             @if (TempData["PredictionExcelUploaded"] as bool? == true)
             {
