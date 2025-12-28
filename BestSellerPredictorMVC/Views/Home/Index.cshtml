@@ -118,17 +118,3 @@
         </tbody>
     </table>
 }
-
-<form asp-action="ClearUploads" asp-controller="Home" method="post" onsubmit="return confirm('Delete uploaded training, prediction and model files for this session? This cannot be undone.');" class="mt-3">
-    @Html.AntiForgeryToken()
-    <button type="submit" class="btn btn-danger">Clear uploaded files</button>
-</form>
-
-@if (TempData["UploadsCleared"] as bool? == true)
-{
-    <div class="alert alert-success mt-2">Uploaded files cleared for this session.</div>
-}
-else if (TempData["UploadsCleared"] as bool? == false)
-{
-    <div class="alert alert-danger mt-2">Failed to clear uploaded files. Check logs.</div>
-}
