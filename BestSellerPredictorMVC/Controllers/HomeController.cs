@@ -22,29 +22,18 @@ namespace BestSellerPredictorMVC.Controllers
             var contentRoot = env?.ContentRootPath ?? Directory.GetCurrentDirectory();
             var webRoot = env?.WebRootPath ?? Path.Combine(contentRoot, "wwwroot");
 
-            var preferred = Path.Combine(contentRoot, "wwwroot", "uploads");
-            var alt1 = Path.Combine(contentRoot, "uploads");
-            var alt2 = Path.Combine(webRoot, "uploads");
+            // Use the actual web root to avoid duplicate "wwwroot" in paths.
+            var uploadDir = Path.Combine(webRoot, "uploads");
 
-            if (Directory.Exists(preferred))
+            if (!Directory.Exists(uploadDir))
             {
-                _uploadPath = preferred;
-            }
-            else if (Directory.Exists(alt1))
-            {
-                _uploadPath = alt1;
-            }
-            else if (Directory.Exists(alt2))
-            {
-                _uploadPath = alt2;
-            }
-            else
-            {
-                _uploadPath = preferred;
-                Directory.CreateDirectory(_uploadPath);
+                Directory.CreateDirectory(uploadDir);
             }
 
-            _logger.LogInformation("Upload path set to {UploadPath}", _uploadPath);
+            _uploadPath = uploadDir;
+
+            _logger.LogInformation("ContentRoot={ContentRoot} WebRoot={WebRoot} Upload path set to {UploadPath}",
+                contentRoot, webRoot, _uploadPath);
         }
 
         [HttpPost]
