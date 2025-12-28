@@ -82,11 +82,11 @@ namespace BestSellerPredictorMVC.Controllers
                     var modelFileName = $"{id}_MLModel.zip";
                     var modelPath = Path.Combine(_uploadPath, modelFileName);
 
-                    var trainer = new MLModelTrainer(modelPath);
+                    // Pass controller logger into trainer so ML logs go to App Service logs / App Insights
+                    var trainer = new MLModelTrainer(modelPath, _logger);
                     var (model, metrics) = trainer.TrainAndSaveModel(trainingData);
 
-                    _logger.LogInformation("Trainer finished. Trainer returned model object null? {IsNull}", model == null);
-                    _logger.LogInformation("Model file expected at {ModelPath} (exists={Exists})", modelPath, System.IO.File.Exists(modelPath));
+                    _logger.LogInformation("Trainer finished. Model file exists: {Exists}", System.IO.File.Exists(modelPath));
 
                     if (model != null && System.IO.File.Exists(modelPath))
                     {
@@ -95,12 +95,11 @@ namespace BestSellerPredictorMVC.Controllers
                         HttpContext.Session.SetString("ModelMetric_Macro", metrics?.MacroAccuracy.ToString("F4") ?? string.Empty);
                         HttpContext.Session.SetString("ModelMetric_LogLoss", metrics?.LogLoss.ToString("F4") ?? string.Empty);
                         TempData["ModelTrained"] = true;
-                        _logger.LogInformation("Model saved and ModelPath set in session: {ModelFile}", modelFileName);
                     }
                     else
                     {
                         TempData["ModelTrained"] = false;
-                        _logger.LogWarning("Model not saved to disk or trainer returned null. Check trainer implementation and dependencies.");
+                        _logger.LogWarning("Model not set in session because model==null or file not found on disk at {ExpectedPath}", modelPath);
                     }
                 }
                 else

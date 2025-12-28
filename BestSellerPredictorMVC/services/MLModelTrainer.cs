@@ -12,8 +12,9 @@ public class MLModelTrainer
 {
     private readonly MLContext _mlContext;
     private readonly string _modelPath;
+    private readonly ILogger? _logger;
 
-    public MLModelTrainer(string modelPath)
+    public MLModelTrainer(string modelPath, ILogger? logger = null)
     {
         _mlContext = new MLContext(seed: 0); // Seed for reproducibility  
         _modelPath = modelPath;
