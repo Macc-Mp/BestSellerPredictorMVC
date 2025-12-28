@@ -43,5 +43,24 @@ namespace BestSellerPredictorMVC.Services
             var json = await File.ReadAllTextAsync(file);
             return JsonSerializer.Deserialize<ModelRecord>(json);
         }
+
+        public Task<bool> DeleteAsync(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token)) return Task.FromResult(false);
+            var file = Path.Combine(_storePath, $"{token}.json");
+            try
+            {
+                if (File.Exists(file))
+                {
+                    File.Delete(file);
+                    return Task.FromResult(true);
+                }
+            }
+            catch
+            {
+                // swallow - caller logs
+            }
+            return Task.FromResult(false);
+        }
     }
 }

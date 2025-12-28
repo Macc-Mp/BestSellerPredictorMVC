@@ -123,3 +123,20 @@
         </tbody>
     </table>
 }
+
+@if (TempData["ClearResult"] != null)
+{
+    <div class="alert alert-info" role="alert">@TempData["ClearResult"]</div>
+}
+
+@if (!string.IsNullOrEmpty(ViewBag.ModelToken as string))
+{
+    <div class="mb-3">
+        <form asp-action="ClearModel" method="post" class="d-inline"
+              onsubmit="return confirm('Delete this model and associated uploaded files? This cannot be undone.');">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn btn-danger">Clear Model</button>
+        </form>
+        <span class="ms-3 text-muted">Model token: <strong>@ViewBag.ModelToken</strong></span>
+    </div>
+}

@@ -1,0 +1,10 @@
+{
+  "Token": "a011438244554da683f5e9566abc90be",
+  "ModelFileName": "a011438244554da683f5e9566abc90be_20251228112445069_MLModel.zip",
+  "TrainingFileName": "a011438244554da683f5e9566abc90be_20251228112445069_TrainingProductSales.xlsx",
+  "PredictionFileName": "4fe1831a2c894d88904313e9b51e1490_20251228112456227_TrainingProductSales.xlsx",
+  "ModelMetric_Micro": "0.9000",
+  "ModelMetric_Macro": "0.9167",
+  "ModelMetric_LogLoss": "0.3621",
+  "CreatedUtc": "2025-12-28T11:24:47.7820619Z"
+}

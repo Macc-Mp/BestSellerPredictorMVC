@@ -8,6 +8,7 @@ using System.Linq;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Hosting;
 using System.Threading.Tasks;
+using BestSellerPredictorMVC.Services;
 
 namespace BestSellerPredictorMVC.Controllers
 {
@@ -15,10 +16,12 @@ namespace BestSellerPredictorMVC.Controllers
     {
         private readonly ILogger<HomeController> _logger;
         private readonly string _uploadPath;
+        private readonly ModelStore _modelStore;
 
-        public HomeController(ILogger<HomeController> logger, IWebHostEnvironment env)
+        public HomeController(ILogger<HomeController> logger, IWebHostEnvironment env, ModelStore modelStore)
         {
             _logger = logger;
+            _modelStore = modelStore;
 
             var contentRoot = env?.ContentRootPath ?? Directory.GetCurrentDirectory();
 
@@ -71,11 +74,12 @@ namespace BestSellerPredictorMVC.Controllers
                 return RedirectToAction("Index");
             }
 
+            // Generate a unique token for this user's model/session
+            var token = Guid.NewGuid().ToString("N");
+
             var originalFileName = Path.GetFileName(trainingExcelFile.FileName);
-            // Use a per-file GUID instead of relying on Session.Id (more robust)
-            var fileGuid = Guid.NewGuid().ToString("N");
             var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-            var storedName = $"{fileGuid}_{timestamp}_{originalFileName}";
+            var storedName = $"{token}_{timestamp}_{originalFileName}";
             var filePath = Path.Combine(_uploadPath, storedName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -118,7 +122,8 @@ namespace BestSellerPredictorMVC.Controllers
 
                 if (trainingData.Any())
                 {
-                    var modelFileName = $"{fileGuid}_{timestamp}_MLModel.zip";
+                    // Save model info using ModelStore
+                    var modelFileName = $"{token}_{timestamp}_MLModel.zip";
                     var modelPath = Path.Combine(_uploadPath, modelFileName);
 
                     // Pass controller logger into trainer so ML logs go to App Service logs / App Insights
@@ -131,25 +136,50 @@ namespace BestSellerPredictorMVC.Controllers
                     if (model != null && System.IO.File.Exists(modelPath))
                     {
                         HttpContext.Session.SetString("ModelPath", modelFileName);
+                        // Persist token in session so we can correlate later (predictions, downloads, debug)
+                        HttpContext.Session.SetString("ModelToken", token);
                         HttpContext.Session.SetString("ModelMetric_Micro", metrics?.MicroAccuracy.ToString("F4") ?? string.Empty);
                         HttpContext.Session.SetString("ModelMetric_Macro", metrics?.MacroAccuracy.ToString("F4") ?? string.Empty);
                         HttpContext.Session.SetString("ModelMetric_LogLoss", metrics?.LogLoss.ToString("F4") ?? string.Empty);
                         TempData["ModelTrained"] = true;
+                        // Expose token to the UI so user can copy it if needed
+                        TempData["ModelToken"] = token;
 
                         try
                         {
                             await HttpContext.Session.CommitAsync();
-                            _logger.LogInformation("Session committed after setting ModelPath={ModelPath}", modelFileName);
+                            _logger.LogInformation("Session committed after setting ModelPath={ModelPath} and ModelToken={Token}", modelFileName, token);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Failed to commit session after setting ModelPath");
+                            _logger.LogError(ex, "Failed to commit session after setting ModelPath/ModelToken");
+                        }
+
+                        // Save a persistent model record (file-backed, free-tier friendly)
+                        try
+                        {
+                            var record = new ModelRecord
+                            {
+                                Token = token,
+                                ModelFileName = modelFileName,
+                                TrainingFileName = storedName,
+                                ModelMetric_Micro = HttpContext.Session.GetString("ModelMetric_Micro") ?? string.Empty,
+                                ModelMetric_Macro = HttpContext.Session.GetString("ModelMetric_Macro") ?? string.Empty,
+                                ModelMetric_LogLoss = HttpContext.Session.GetString("ModelMetric_LogLoss") ?? string.Empty,
+                                CreatedUtc = DateTime.UtcNow
+                            };
+
+                            await _modelStore.SaveAsync(record);
+                            _logger.LogInformation("Saved model record for token {Token}", token);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to save model record for token {Token}", token);
                         }
                     }
                     else
                     {
                         TempData["ModelTrained"] = false;
-                        TempData["TrainingError"] = "Model training did not produce a saved model file. Check server logs (label count, exceptions).";
                         _logger.LogWarning("Model not set in session because model==null or file not found at {ExpectedPath}", modelPath);
                     }
                 }
@@ -208,6 +238,34 @@ namespace BestSellerPredictorMVC.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to commit session after setting PredictionFile");
+            }
+
+            // If we have a token for this model, update the persistent record with the prediction filename
+            try
+            {
+                var token = HttpContext.Session.GetString("ModelToken");
+                if (!string.IsNullOrEmpty(token))
+                {
+                    var existing = await _modelStore.GetAsync(token);
+                    if (existing != null)
+                    {
+                        existing.PredictionFileName = storedName;
+                        await _modelStore.SaveAsync(existing);
+                        _logger.LogInformation("Updated model record {Token} with prediction file {Prediction}", token, storedName);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("No model record found for token {Token} when saving prediction file {Prediction}", token, storedName);
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("No ModelToken in session to associate prediction file {Prediction}", storedName);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update model record with prediction file");
             }
 
             _logger.LogInformation("Session after upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
@@ -298,6 +356,8 @@ namespace BestSellerPredictorMVC.Controllers
                     ViewBag.ModelMetric_Micro = HttpContext.Session.GetString("ModelMetric_Micro");
                     ViewBag.ModelMetric_Macro = HttpContext.Session.GetString("ModelMetric_Macro");
                     ViewBag.ModelMetric_LogLoss = HttpContext.Session.GetString("ModelMetric_LogLoss");
+                    // expose token to the view if present
+                    ViewBag.ModelToken = HttpContext.Session.GetString("ModelToken");
                 }
                 else
                 {
@@ -350,6 +410,85 @@ namespace BestSellerPredictorMVC.Controllers
         public IActionResult Error()
         {
             return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ClearModel()
+        {
+            var token = HttpContext.Session.GetString("ModelToken");
+            if (string.IsNullOrEmpty(token))
+            {
+                TempData["ClearResult"] = "No model token in session to clear.";
+                return RedirectToAction("Index");
+            }
+
+            try
+            {
+                // Try to load record to know associated filenames
+                var record = await _modelStore.GetAsync(token);
+
+                if (record != null)
+                {
+                    // Delete files referenced by the record if they exist inside uploads directory
+                    void TryDeleteFile(string fileName)
+                    {
+                        if (string.IsNullOrEmpty(fileName)) return;
+                        try
+                        {
+                            var path = Path.Combine(_uploadPath, fileName);
+                            // safety: ensure the path is inside _uploadPath
+                            var normalizedUpload = Path.GetFullPath(_uploadPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                            var normalizedPath = Path.GetFullPath(path);
+                            if (!normalizedPath.StartsWith(normalizedUpload, StringComparison.OrdinalIgnoreCase)) return;
+
+                            if (System.IO.File.Exists(normalizedPath))
+                            {
+                                System.IO.File.Delete(normalizedPath);
+                                _logger.LogInformation("Deleted file {File}", normalizedPath);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed deleting file {FileName} for token {Token}", fileName, token);
+                        }
+                    }
+
+                    TryDeleteFile(record.ModelFileName);
+                    TryDeleteFile(record.TrainingFileName);
+                    TryDeleteFile(record.PredictionFileName);
+                }
+
+                var deleted = await _modelStore.DeleteAsync(token);
+                _logger.LogInformation("ModelStore.DeleteAsync({Token}) -> {Deleted}", token, deleted);
+
+                // Clear session keys related to this model
+                HttpContext.Session.Remove("ModelPath");
+                HttpContext.Session.Remove("TrainingFile");
+                HttpContext.Session.Remove("PredictionFile");
+                HttpContext.Session.Remove("ModelToken");
+                HttpContext.Session.Remove("ModelMetric_Micro");
+                HttpContext.Session.Remove("ModelMetric_Macro");
+                HttpContext.Session.Remove("ModelMetric_LogLoss");
+
+                try
+                {
+                    await HttpContext.Session.CommitAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to commit session after clearing model tokens");
+                }
+
+                TempData["ClearResult"] = "Model record and associated files cleared.";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing model for token {Token}", token);
+                TempData["ClearResult"] = "Error clearing model (see logs).";
+            }
+
+            return RedirectToAction("Index");
         }
     }
 }

@@ -1,4 +1,5 @@
 using BestSellerPredictorMVC.Models;
+using BestSellerPredictorMVC.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -44,6 +45,9 @@ builder.Services.AddSingleton<ITempDataProvider, CookieTempDataProvider>();
 // Add MVC
 builder.Services.AddControllersWithViews();
 
+// Register ModelStore for GUID-based model record persistence (free-tier friendly file store)
+builder.Services.AddSingleton<ModelStore>();
+
 // Configure cookie policy (helps SameSite handling behind proxies)
 builder.Services.Configure<CookiePolicyOptions>(options =>
 {
@@ -60,13 +64,15 @@ builder.Services.Configure<FormOptions>(options =>
 
 // Session (in-memory ok for single instance; use Redis for scale-out)
 builder.Services.AddDistributedMemoryCache();
-builder.Services.AddSession(options => {
-      options.IdleTimeout = TimeSpan.FromMinutes(30);
-      options.Cookie.HttpOnly = true;
-      options.Cookie.IsEssential = true;
-  });
-  // For distributed session (Azure Blob, Redis, or SQL)
-  // builder.Services.AddDistributedSqlServerCache(...) or AddStackExchangeRedisCache(...)
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromHours(1);
+    options.Cookie.Name = ".AspNetCore.Session";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+    options.Cookie.SameSite = sameSiteMode;
+    options.Cookie.SecurePolicy = cookieSecurePolicy;
+});
 
 // Configure forwarded headers so the app sees the original scheme behind proxies (App Service, Front Door, etc.)
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -90,7 +96,7 @@ app.UseRouting();
 
 // Process forwarded headers BEFORE cookie policy and session
 app.UseForwardedHeaders();
-
+app.UseAuthorization();
 app.UseCookiePolicy();
 
 app.UseSession();
