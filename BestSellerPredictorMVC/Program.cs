@@ -60,15 +60,13 @@ builder.Services.Configure<FormOptions>(options =>
 
 // Session (in-memory ok for single instance; use Redis for scale-out)
 builder.Services.AddDistributedMemoryCache();
-builder.Services.AddSession(options =>
-{
-    options.IdleTimeout = TimeSpan.FromHours(1);
-    options.Cookie.Name = ".AspNetCore.Session";
-    options.Cookie.HttpOnly = true;
-    options.Cookie.IsEssential = true;
-    options.Cookie.SameSite = sameSiteMode;
-    options.Cookie.SecurePolicy = cookieSecurePolicy;
-});
+builder.Services.AddSession(options => {
+      options.IdleTimeout = TimeSpan.FromMinutes(30);
+      options.Cookie.HttpOnly = true;
+      options.Cookie.IsEssential = true;
+  });
+  // For distributed session (Azure Blob, Redis, or SQL)
+  // builder.Services.AddDistributedSqlServerCache(...) or AddStackExchangeRedisCache(...)
 
 // Configure forwarded headers so the app sees the original scheme behind proxies (App Service, Front Door, etc.)
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
