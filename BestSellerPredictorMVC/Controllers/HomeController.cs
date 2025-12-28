@@ -20,31 +20,19 @@ namespace BestSellerPredictorMVC.Controllers
             _logger = logger;
 
             var contentRoot = env?.ContentRootPath ?? Directory.GetCurrentDirectory();
+            // Prefer the actual web root to avoid duplicate "wwwroot"
             var webRoot = env?.WebRootPath ?? Path.Combine(contentRoot, "wwwroot");
+            var uploadDir = Path.Combine(webRoot, "uploads");
 
-            var preferred = Path.Combine(contentRoot, "wwwroot", "uploads");
-            var alt1 = Path.Combine(contentRoot, "uploads");
-            var alt2 = Path.Combine(webRoot, "uploads");
-
-            if (Directory.Exists(preferred))
+            if (!Directory.Exists(uploadDir))
             {
-                _uploadPath = preferred;
-            }
-            else if (Directory.Exists(alt1))
-            {
-                _uploadPath = alt1;
-            }
-            else if (Directory.Exists(alt2))
-            {
-                _uploadPath = alt2;
-            }
-            else
-            {
-                _uploadPath = preferred;
-                Directory.CreateDirectory(_uploadPath);
+                Directory.CreateDirectory(uploadDir);
             }
 
-            _logger.LogInformation("Upload path set to {UploadPath}", _uploadPath);
+            _uploadPath = uploadDir;
+
+            _logger.LogInformation("HomeController initialized. ContentRoot={ContentRoot} WebRoot={WebRoot} UploadPath={UploadPath}",
+                contentRoot, webRoot, _uploadPath);
         }
 
         [HttpPost]
@@ -75,6 +63,7 @@ namespace BestSellerPredictorMVC.Controllers
             {
                 var loader = new ExcelDataLoader();
                 var trainingDataExcel = loader.LoadTrainingData(filePath).ToList();
+                _logger.LogInformation("Loaded training excel rows: {Count}", trainingDataExcel.Count);
 
                 var trainingData = trainingDataExcel.Select(td => new ProductSalesData
                 {
@@ -86,6 +75,8 @@ namespace BestSellerPredictorMVC.Controllers
                     SalePerformanceCategory = td.SalePerformanceCategory
                 }).ToList();
 
+                _logger.LogInformation("Mapped training rows to ProductSalesData: {Count}", trainingData.Count);
+
                 if (trainingData.Any())
                 {
                     var modelFileName = $"{id}_MLModel.zip";
@@ -94,63 +85,33 @@ namespace BestSellerPredictorMVC.Controllers
                     var trainer = new MLModelTrainer(modelPath);
                     var (model, metrics) = trainer.TrainAndSaveModel(trainingData);
 
-                    _logger.LogInformation("Trainer finished. Expected model path: {ModelPath}. Exists: {Exists}", modelPath, System.IO.File.Exists(modelPath));
+                    _logger.LogInformation("Trainer finished. Trainer returned model object null? {IsNull}", model == null);
+                    _logger.LogInformation("Model file expected at {ModelPath} (exists={Exists})", modelPath, System.IO.File.Exists(modelPath));
 
-                    // Robust model file detection: prefer exact expected name, otherwise pick most recent match
-                    string foundModelFileName = null;
-                    if (model != null)
+                    if (model != null && System.IO.File.Exists(modelPath))
                     {
-                        if (System.IO.File.Exists(modelPath))
-                        {
-                            foundModelFileName = modelFileName;
-                        }
-                        else
-                        {
-                            try
-                            {
-                                var candidates = Directory.Exists(_uploadPath)
-                                    ? Directory.GetFiles(_uploadPath, "*MLModel.zip")
-                                        .OrderByDescending(f => new FileInfo(f).LastWriteTimeUtc)
-                                        .ToArray()
-                                    : Array.Empty<string>();
-
-                                if (candidates.Length > 0)
-                                {
-                                    foundModelFileName = Path.GetFileName(candidates[0]);
-                                    _logger.LogInformation("Fallback model file chosen: {Fallback}", candidates[0]);
-                                }
-                                else
-                                {
-                                    _logger.LogWarning("No candidate model files found in uploads folder as fallback.");
-                                }
-                            }
-                            catch (System.Exception ex)
-                            {
-                                _logger.LogError(ex, "Error while searching for fallback model file");
-                            }
-                        }
-                    }
-
-                    if (!string.IsNullOrEmpty(foundModelFileName))
-                    {
-                        HttpContext.Session.SetString("ModelPath", foundModelFileName);
+                        HttpContext.Session.SetString("ModelPath", modelFileName);
                         HttpContext.Session.SetString("ModelMetric_Micro", metrics?.MicroAccuracy.ToString("F4") ?? string.Empty);
                         HttpContext.Session.SetString("ModelMetric_Macro", metrics?.MacroAccuracy.ToString("F4") ?? string.Empty);
                         HttpContext.Session.SetString("ModelMetric_LogLoss", metrics?.LogLoss.ToString("F4") ?? string.Empty);
                         TempData["ModelTrained"] = true;
-
-                        _logger.LogInformation("ModelPath session set to {ModelFile}", foundModelFileName);
+                        _logger.LogInformation("Model saved and ModelPath set in session: {ModelFile}", modelFileName);
                     }
                     else
                     {
-                        _logger.LogWarning("Model was trained but no model file was found to set in session.");
                         TempData["ModelTrained"] = false;
+                        _logger.LogWarning("Model not saved to disk or trainer returned null. Check trainer implementation and dependencies.");
                     }
+                }
+                else
+                {
+                    TempData["ModelTrained"] = false;
+                    _logger.LogWarning("No training data rows after mapping; skipping training.");
                 }
             }
             catch (System.Exception ex)
             {
-                _logger.LogError(ex, "Training failed after upload");
+                _logger.LogError(ex, "Training failed after upload. Exception: {ExceptionMessage}", ex.Message);
                 TempData["ModelTrained"] = false;
             }
 
@@ -160,32 +121,6 @@ namespace BestSellerPredictorMVC.Controllers
         [HttpPost]
         public async Task<IActionResult> UploadPredictionExcel(IFormFile predictionExcelFile)
         {
-            // Diagnostics: log request-level info to show whether server saw multipart form and files
-            try
-            {
-                _logger.LogInformation("UploadPredictionExcel called. Request ContentLength={ContentLength}, HasFormContentType={HasForm}, Method={Method}",
-                    Request.ContentLength, Request.HasFormContentType, Request.Method);
-
-                if (Request.HasFormContentType)
-                {
-                    _logger.LogInformation("Form keys: {Keys}", string.Join(",", Request.Form.Keys));
-                    _logger.LogInformation("Form file count: {Count}", Request.Form.Files.Count);
-                    for (int i = 0; i < Request.Form.Files.Count; i++)
-                    {
-                        var f = Request.Form.Files[i];
-                        _logger.LogInformation("Form file {Index}: Name={Name}, FileName={FileName}, Length={Length}", i, f.Name, f.FileName, f.Length);
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning("Request does not have form content type; cannot read Request.Form.");
-                }
-            }
-            catch (System.Exception ex)
-            {
-                _logger.LogError(ex, "Error while inspecting request form");
-            }
-
             // Diagnostic logs: confirm session + cookie + current session values
             _logger.LogInformation("UploadPredictionExcel called. Request Cookies: {Cookies}", Request.Headers["Cookie"].ToString());
             _logger.LogInformation("Session available: {IsAvailable}", HttpContext.Session.IsAvailable);
@@ -197,9 +132,6 @@ namespace BestSellerPredictorMVC.Controllers
             if (predictionExcelFile == null || predictionExcelFile.Length == 0)
             {
                 TempData["PredictionExcelUploaded"] = false;
-                // Log explicit null/empty reason to help debugging
-                _logger.LogWarning("predictionExcelFile is null or empty. Param null={IsNull} Length={Length}",
-                    predictionExcelFile == null, predictionExcelFile?.Length);
                 return RedirectToAction("Index");
             }
 
