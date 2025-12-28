@@ -128,7 +128,6 @@ namespace BestSellerPredictorMVC.Controllers
         [HttpPost]
         public async Task<IActionResult> UploadPredictionExcel(IFormFile predictionExcelFile)
         {
-            // Diagnostic logs: confirm session + cookie + current session values
             _logger.LogInformation("UploadPredictionExcel called. Request Cookies: {Cookies}", Request.Headers["Cookie"].ToString());
             _logger.LogInformation("Session available: {IsAvailable}", HttpContext.Session.IsAvailable);
             _logger.LogInformation("Session before upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
@@ -143,13 +142,9 @@ namespace BestSellerPredictorMVC.Controllers
             }
 
             var originalFileName = Path.GetFileName(predictionExcelFile.FileName);
-            var sessionId = HttpContext?.Session?.Id;
-            if (string.IsNullOrEmpty(sessionId))
-            {
-                sessionId = Guid.NewGuid().ToString("N");
-            }
+            var fileGuid = Guid.NewGuid().ToString("N");
             var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-            var storedName = $"{sessionId}_{timestamp}_{originalFileName}";
+            var storedName = $"{fileGuid}_{timestamp}_{originalFileName}";
             var filePath = Path.Combine(_uploadPath, storedName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -157,9 +152,21 @@ namespace BestSellerPredictorMVC.Controllers
                 await predictionExcelFile.CopyToAsync(stream);
             }
 
-            _logger.LogInformation("Prediction file saved to {FilePath} (exists={Exists})", filePath, System.IO.File.Exists(filePath));
+            _logger.LogInformation("Prediction file saved to {FilePath} as {StoredName} (exists={Exists})", filePath, storedName, System.IO.File.Exists(filePath));
 
+            // store the actual filename in session (Index() reads this exact string)
             HttpContext.Session.SetString("PredictionFile", storedName);
+            // force session to persist now (helps when redirecting immediately)
+            try
+            {
+                await HttpContext.Session.CommitAsync();
+                _logger.LogInformation("Session committed after setting PredictionFile={PredictionFile}", storedName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to commit session after setting PredictionFile");
+            }
+
             TempData["PredictionExcelUploaded"] = true;
 
             _logger.LogInformation("Session after upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
