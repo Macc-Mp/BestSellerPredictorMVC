@@ -171,7 +171,6 @@ namespace BestSellerPredictorMVC.Controllers
         [HttpPost]
         public async Task<IActionResult> UploadPredictionExcel(IFormFile predictionExcelFile)
         {
-            // Diagnostic logs: confirm session + cookie + current session values
             _logger.LogInformation("UploadPredictionExcel called. Request Cookies: {Cookies}", Request.Headers["Cookie"].ToString());
             _logger.LogInformation("Session available: {IsAvailable}", HttpContext.Session.IsAvailable);
             _logger.LogInformation("Session before upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
@@ -201,9 +200,9 @@ namespace BestSellerPredictorMVC.Controllers
             HttpContext.Session.SetString("PredictionFile", storedName);
             TempData["PredictionExcelUploaded"] = true;
 
-            // Force session to persist now (helps when redirecting immediately)
             try
             {
+                // Ensure the session write completes before we redirect
                 await HttpContext.Session.CommitAsync();
                 _logger.LogInformation("Session committed after setting PredictionFile={PredictionFile}", storedName);
             }
