@@ -156,3 +156,13 @@
         <span class="ms-3 text-muted">Model token: <strong>@ViewBag.ModelToken</strong></span>
     </div>
 }
+
+@if (TempData["PredictionPending"] != null)
+{
+    <div class="alert alert-warning mt-2">@TempData["PredictionPending"]</div>
+}
+
+@if (TempData["PredictionError"] != null)
+{
+    <div class="alert alert-danger mt-2">@TempData["PredictionError"]</div>
+}

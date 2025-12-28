@@ -201,9 +201,11 @@ namespace BestSellerPredictorMVC.Controllers
         [HttpPost]
         public async Task<IActionResult> UploadPredictionExcel(IFormFile predictionExcelFile)
         {
-            _logger.LogInformation("UploadPredictionExcel called. Request Cookies: {Cookies}", Request.Headers["Cookie"].ToString());
-            _logger.LogInformation("Session available: {IsAvailable}", HttpContext.Session.IsAvailable);
-            _logger.LogInformation("Session before upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
+            // Improved logging for debugging
+            _logger.LogInformation("UploadPredictionExcel called. SessionId={SessionId} Cookies={Cookies} SessionAvailable={IsAvailable} ModelPath={ModelPath} TrainingFile={TrainingFile} PredictionFileBefore={PredictionFileBefore}",
+                HttpContext.Session?.Id,
+                Request.Headers["Cookie"].ToString(),
+                HttpContext.Session.IsAvailable,
                 HttpContext.Session.GetString("ModelPath"),
                 HttpContext.Session.GetString("TrainingFile"),
                 HttpContext.Session.GetString("PredictionFile"));
@@ -220,52 +222,70 @@ namespace BestSellerPredictorMVC.Controllers
             var storedName = $"{fileGuid}_{timestamp}_{originalFileName}";
             var filePath = Path.Combine(_uploadPath, storedName);
 
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await predictionExcelFile.CopyToAsync(stream);
-            }
-
-            _logger.LogInformation("Prediction file saved to {FilePath} as {StoredName} (exists={Exists})", filePath, storedName, System.IO.File.Exists(filePath));
-
-            HttpContext.Session.SetString("PredictionFile", storedName);
-            TempData["PredictionExcelUploaded"] = true;
-
             try
             {
-                await HttpContext.Session.CommitAsync();
-                _logger.LogInformation("Session committed after setting PredictionFile={PredictionFile}", storedName);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to commit session after setting PredictionFile");
-            }
-
-            // If we have a token for this model, update the persistent record with the prediction filename
-            try
-            {
-                var token = HttpContext.Session.GetString("ModelToken");
-                if (!string.IsNullOrEmpty(token))
+                // Save incoming prediction file
+                using (var stream = new FileStream(filePath, FileMode.Create))
                 {
-                    var existing = await _modelStore.GetAsync(token);
-                    if (existing != null)
+                    await predictionExcelFile.CopyToAsync(stream);
+                }
+
+                _logger.LogInformation("Prediction file saved to {FilePath} as {StoredName} (exists={Exists})", filePath, storedName, System.IO.File.Exists(filePath));
+
+                // Save to session so Index action can pick it up
+                HttpContext.Session.SetString("PredictionFile", storedName);
+                TempData["PredictionExcelUploaded"] = true;
+
+                try
+                {
+                    await HttpContext.Session.CommitAsync();
+                    _logger.LogInformation("Session committed after setting PredictionFile={PredictionFile}", storedName);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to commit session after setting PredictionFile");
+                }
+
+                // If we have a token for this model, update the persistent record with the prediction filename
+                try
+                {
+                    var token = HttpContext.Session.GetString("ModelToken");
+                    if (!string.IsNullOrEmpty(token))
                     {
-                        existing.PredictionFileName = storedName;
-                        await _modelStore.SaveAsync(existing);
-                        _logger.LogInformation("Updated model record {Token} with prediction file {Prediction}", token, storedName);
+                        var existing = await _modelStore.GetAsync(token);
+                        if (existing != null)
+                        {
+                            existing.PredictionFileName = storedName;
+                            await _modelStore.SaveAsync(existing);
+                            _logger.LogInformation("Updated model record {Token} with prediction file {Prediction}", token, storedName);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("No model record found for token {Token} when saving prediction file {Prediction}", token, storedName);
+                        }
                     }
                     else
                     {
-                        _logger.LogWarning("No model record found for token {Token} when saving prediction file {Prediction}", token, storedName);
+                        _logger.LogInformation("No ModelToken in session to associate prediction file {Prediction}", storedName);
                     }
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogInformation("No ModelToken in session to associate prediction file {Prediction}", storedName);
+                    _logger.LogError(ex, "Failed to update model record with prediction file");
+                }
+
+                // If model is not yet available in session or model file doesn't exist yet, mark as pending
+                var modelFile = HttpContext.Session.GetString("ModelPath");
+                if (string.IsNullOrEmpty(modelFile) || !System.IO.File.Exists(Path.Combine(_uploadPath, modelFile)))
+                {
+                    TempData["PredictionPending"] = "Model is not ready yet. The uploaded prediction will be processed after training completes.";
+                    _logger.LogInformation("Prediction uploaded but model not ready for session. PredictionFile={PredictionFile} ModelPath={ModelPath}", storedName, modelFile);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to update model record with prediction file");
+                _logger.LogError(ex, "Failed while saving prediction file or updating record. Exception: {Message}", ex.Message);
+                TempData["PredictionError"] = "Failed to upload prediction file: " + ex.Message;
             }
 
             _logger.LogInformation("Session after upload: ModelPath={ModelPath}, TrainingFile={TrainingFile}, PredictionFile={PredictionFile}",
