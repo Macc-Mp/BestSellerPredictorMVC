@@ -15,6 +15,19 @@ using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Normalize WebRoot so it contains exactly one "wwwroot"
+var contentRoot = builder.Environment.ContentRootPath ?? Directory.GetCurrentDirectory();
+string explicitWebRoot;
+if (string.Equals(Path.GetFileName(contentRoot), "wwwroot", StringComparison.OrdinalIgnoreCase))
+{
+    explicitWebRoot = Path.GetFullPath(contentRoot);
+}
+else
+{
+    explicitWebRoot = Path.GetFullPath(Path.Combine(contentRoot, "wwwroot"));
+}
+builder.WebHost.UseWebRoot(explicitWebRoot);
+
 // EPPlus license
 ExcelPackage.License.SetNonCommercialPersonal("Moises");
 
@@ -78,6 +91,22 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 
 var app = builder.Build();
+
+// Ensure uploads folder exists under the resolved WebRoot and write a small startup test file (logged)
+try
+{
+    var webRoot = app.Environment.WebRootPath ?? explicitWebRoot;
+    var uploadsDir = Path.Combine(webRoot, "uploads");
+    Directory.CreateDirectory(uploadsDir);
+
+    var testFile = Path.Combine(uploadsDir, $"startup_check_{DateTime.UtcNow:yyyyMMddHHmmss}.txt");
+    File.WriteAllText(testFile, $"startup ok - {DateTime.UtcNow:o}");
+    app.Logger.LogInformation("WebRoot resolved to: {WebRoot}. Uploads folder created: {UploadsDir}. Test file written: {TestFile}", webRoot, uploadsDir, testFile);
+}
+catch (Exception ex)
+{
+    app.Logger.LogError(ex, "Failed to create uploads folder or write startup test file.");
+}
 
 if (!app.Environment.IsDevelopment())
 {

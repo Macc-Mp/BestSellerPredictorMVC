@@ -30,7 +30,7 @@ namespace BestSellerPredictorMVC.Controllers
                 Directory.CreateDirectory(uploadDir);
             }
 
-            _uploadPath = uploadDir;
+            _uploadPath = Path.GetFullPath(uploadDir);
 
             _logger.LogInformation("HomeController initialized. ContentRoot={ContentRoot} WebRoot={WebRoot} UploadPath={UploadPath}",
                 contentRoot, webRoot, _uploadPath);
