@@ -30,7 +30,7 @@ namespace BestSellerPredictorMVC.Controllers
                 Directory.CreateDirectory(uploadDir);
             }
 
-            _uploadPath = Path.GetFullPath(uploadDir);
+            _uploadPath = uploadDir;
 
             _logger.LogInformation("HomeController initialized. ContentRoot={ContentRoot} WebRoot={WebRoot} UploadPath={UploadPath}",
                 contentRoot, webRoot, _uploadPath);
@@ -46,8 +46,15 @@ namespace BestSellerPredictorMVC.Controllers
             }
 
             var originalFileName = Path.GetFileName(trainingExcelFile.FileName);
-            var id = Guid.NewGuid().ToString("N");
-            var storedName = $"{id}_{originalFileName}";
+            // Build name: {sessionId}_{utcTimestamp}_{originalFileName}
+            var sessionId = HttpContext?.Session?.Id;
+            if (string.IsNullOrEmpty(sessionId))
+            {
+                // fallback if session id isn't available
+                sessionId = Guid.NewGuid().ToString("N");
+            }
+            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+            var storedName = $"{sessionId}_{timestamp}_{originalFileName}";
             var filePath = Path.Combine(_uploadPath, storedName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -80,7 +87,7 @@ namespace BestSellerPredictorMVC.Controllers
 
                 if (trainingData.Any())
                 {
-                    var modelFileName = $"{id}_MLModel.zip";
+                    var modelFileName = $"{sessionId}_{timestamp}_MLModel.zip";
                     var modelPath = Path.Combine(_uploadPath, modelFileName);
 
                     // Pass controller logger into trainer so ML logs go to App Service logs / App Insights
@@ -136,8 +143,13 @@ namespace BestSellerPredictorMVC.Controllers
             }
 
             var originalFileName = Path.GetFileName(predictionExcelFile.FileName);
-            var id = Guid.NewGuid().ToString("N");
-            var storedName = $"{id}_{originalFileName}";
+            var sessionId = HttpContext?.Session?.Id;
+            if (string.IsNullOrEmpty(sessionId))
+            {
+                sessionId = Guid.NewGuid().ToString("N");
+            }
+            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+            var storedName = $"{sessionId}_{timestamp}_{originalFileName}";
             var filePath = Path.Combine(_uploadPath, storedName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -257,11 +269,7 @@ namespace BestSellerPredictorMVC.Controllers
                     productList = loader.LoadData(predictionPath).ToList();
                     if (productList.Any())
                     {
-                        // Log the exact model path we're about to load so you can confirm whether it points to wwwroot\wwwroot
-                        var modelFullPath = Path.Combine(_uploadPath, HttpContext.Session.GetString("ModelPath")!);
-                        _logger.LogInformation("Loading ML model from {ModelFullPath} (exists={Exists})", modelFullPath, System.IO.File.Exists(modelFullPath));
-
-                        var predictor = new MLModelPredictor(modelFullPath);
+                        var predictor = new MLModelPredictor(Path.Combine(_uploadPath, HttpContext.Session.GetString("ModelPath")!));
                         predictions = predictor.PredictBatch(productList).ToList();
                         ViewBag.PredictionExcelUploaded = true;
                     }
