@@ -116,71 +116,100 @@ namespace BestSellerPredictorMVC.Controllers
 
                 if (trainingData.Any())
                 {
-                    var modelFileName = $"{id}_MLModel.zip";
-                    var expectedModelPath = Path.Combine(sessionFolder, modelFileName);
+                    var distinctLabels = trainingData
+    .Select(t => (t.SalePerformanceCategory ?? string.Empty).Trim())
+    .Where(s => !string.IsNullOrEmpty(s))
+    .GroupBy(s => s)
+    .Select(g => new { Label = g.Key, Count = g.Count() })
+    .ToList();
 
-                    var trainer = new MLModelTrainer(expectedModelPath);
-                    var (model, metrics) = trainer.TrainAndSaveModel(trainingData);
+                    _logger.LogInformation("Training dataset: {RecordCount} records, {LabelCount} distinct labels. Labels: {Labels}",
+    trainingData.Count, distinctLabels.Count, string.Join(", ", distinctLabels.Select(l => $"{l.Label}({l.Count})")));
 
-                    _logger.LogInformation("Trainer finished. Expected model path: {ModelPath}. Exists: {Exists}", expectedModelPath, System.IO.File.Exists(expectedModelPath));
-
-                    // Robust model file detection limited to the session folder
-                    string foundModelFileName = null;
-                    if (model != null)
+                    if (distinctLabels.Count < 2)
                     {
-                        if (System.IO.File.Exists(expectedModelPath))
+                        // Inform user and avoid calling trainer which would return null
+                        TempData["ModelTrained"] = false;
+                        TempData["TrainingWarning"] = "Training requires at least two distinct SalePerformanceCategory values. Please include more labeled examples.";
+                        _logger.LogWarning("Aborting training: insufficient distinct labels ({LabelCount}).", distinctLabels.Count);
+                        return RedirectToAction("Index");
+                    }
+
+                    try
+                    {
+                        var modelFileName = $"{id}_MLModel.zip";
+                        var modelPath = Path.Combine(sessionFolder, modelFileName);
+
+                        var trainer = new MLModelTrainer(modelPath);
+                        var (model, metrics) = trainer.TrainAndSaveModel(trainingData);
+
+                        _logger.LogInformation("Trainer finished. Expected model path: {ModelPath}. Exists: {Exists}", modelPath, System.IO.File.Exists(modelPath));
+
+                        // Robust model file detection limited to the session folder
+                        string foundModelFileName = null;
+                        if (model != null)
                         {
-                            foundModelFileName = modelFileName;
+                            if (System.IO.File.Exists(modelPath))
+                            {
+                                foundModelFileName = modelFileName;
+                            }
+                            else
+                            {
+                                try
+                                {
+                                    var graceWindow = TimeSpan.FromSeconds(5);
+                                    var candidates = Directory.Exists(sessionFolder)
+                                        ? Directory.GetFiles(sessionFolder, "*_MLModel.zip")
+                                            .Select(p => new FileInfo(p))
+                                            .Where(fi => fi.LastWriteTimeUtc >= DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(10))) // broad window
+                                            .OrderByDescending(fi => fi.LastWriteTimeUtc)
+                                            .ToArray()
+                                        : Array.Empty<FileInfo>();
+
+                                    if (candidates.Length > 0)
+                                    {
+                                        foundModelFileName = candidates[0].Name;
+                                        _logger.LogInformation("Fallback model file chosen from session folder: {Fallback}", candidates[0].FullName);
+                                    }
+                                    else
+                                    {
+                                        var plain = Path.Combine(sessionFolder, "MLModel.zip");
+                                        if (System.IO.File.Exists(plain))
+                                        {
+                                            foundModelFileName = Path.GetFileName(plain);
+                                            _logger.LogInformation("Fallback using plain MLModel.zip in session folder");
+                                        }
+                                    }
+                                }
+                                catch (System.Exception ex)
+                                {
+                                    _logger.LogError(ex, "Error while searching session folder for fallback model file");
+                                }
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(foundModelFileName))
+                        {
+                            HttpContext.Session.SetString("ModelPath", foundModelFileName);
+                            HttpContext.Session.SetString("ModelMetric_Micro", metrics?.MicroAccuracy.ToString("F4") ?? string.Empty);
+                            HttpContext.Session.SetString("ModelMetric_Macro", metrics?.MacroAccuracy.ToString("F4") ?? string.Empty);
+                            HttpContext.Session.SetString("ModelMetric_LogLoss", metrics?.LogLoss.ToString("F4") ?? string.Empty);
+                            TempData["ModelTrained"] = true;
+
+                            _logger.LogInformation("ModelPath session set to {ModelFile}", foundModelFileName);
                         }
                         else
                         {
-                            try
-                            {
-                                var graceWindow = TimeSpan.FromSeconds(5);
-                                var candidates = Directory.Exists(sessionFolder)
-                                    ? Directory.GetFiles(sessionFolder, "*_MLModel.zip")
-                                        .Select(p => new FileInfo(p))
-                                        .Where(fi => fi.LastWriteTimeUtc >= DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(10))) // broad window
-                                        .OrderByDescending(fi => fi.LastWriteTimeUtc)
-                                        .ToArray()
-                                    : Array.Empty<FileInfo>();
-
-                                if (candidates.Length > 0)
-                                {
-                                    foundModelFileName = candidates[0].Name;
-                                    _logger.LogInformation("Fallback model file chosen from session folder: {Fallback}", candidates[0].FullName);
-                                }
-                                else
-                                {
-                                    var plain = Path.Combine(sessionFolder, "MLModel.zip");
-                                    if (System.IO.File.Exists(plain))
-                                    {
-                                        foundModelFileName = Path.GetFileName(plain);
-                                        _logger.LogInformation("Fallback using plain MLModel.zip in session folder");
-                                    }
-                                }
-                            }
-                            catch (System.Exception ex)
-                            {
-                                _logger.LogError(ex, "Error while searching session folder for fallback model file");
-                            }
+                            _logger.LogWarning("Model was trained but no model file was found in session folder to set in session.");
+                            TempData["ModelTrained"] = false;
                         }
                     }
-
-                    if (!string.IsNullOrEmpty(foundModelFileName))
+                    catch (Exception ex)
                     {
-                        HttpContext.Session.SetString("ModelPath", foundModelFileName);
-                        HttpContext.Session.SetString("ModelMetric_Micro", metrics?.MicroAccuracy.ToString("F4") ?? string.Empty);
-                        HttpContext.Session.SetString("ModelMetric_Macro", metrics?.MacroAccuracy.ToString("F4") ?? string.Empty);
-                        HttpContext.Session.SetString("ModelMetric_LogLoss", metrics?.LogLoss.ToString("F4") ?? string.Empty);
-                        TempData["ModelTrained"] = true;
-
-                        _logger.LogInformation("ModelPath session set to {ModelFile}", foundModelFileName);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Model was trained but no model file was found in session folder to set in session.");
+                        _logger.LogError(ex, "Training failed with exception");
                         TempData["ModelTrained"] = false;
+                        TempData["TrainingWarning"] = "Training failed on the server. Check application logs for details.";
+                        return RedirectToAction("Index");
                     }
                 }
             }
