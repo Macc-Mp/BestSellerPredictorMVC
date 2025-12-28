@@ -125,7 +125,8 @@ namespace BestSellerPredictorMVC.Controllers
                     var trainer = new MLModelTrainer(modelPath, _logger);
                     var (model, metrics) = trainer.TrainAndSaveModel(trainingData);
 
-                    _logger.LogInformation("Trainer finished. Model file exists: {Exists}", System.IO.File.Exists(modelPath));
+                    _logger.LogInformation("Trainer finished. Expected modelPath on disk: {ModelPath}", modelPath);
+                    _logger.LogInformation("Model file exists at expected path: {Exists}", System.IO.File.Exists(modelPath));
 
                     if (model != null && System.IO.File.Exists(modelPath))
                     {
@@ -135,7 +136,6 @@ namespace BestSellerPredictorMVC.Controllers
                         HttpContext.Session.SetString("ModelMetric_LogLoss", metrics?.LogLoss.ToString("F4") ?? string.Empty);
                         TempData["ModelTrained"] = true;
 
-                        // Commit again to persist model path & metrics
                         try
                         {
                             await HttpContext.Session.CommitAsync();
@@ -149,6 +149,7 @@ namespace BestSellerPredictorMVC.Controllers
                     else
                     {
                         TempData["ModelTrained"] = false;
+                        TempData["TrainingError"] = "Model training did not produce a saved model file. Check server logs (label count, exceptions).";
                         _logger.LogWarning("Model not set in session because model==null or file not found at {ExpectedPath}", modelPath);
                     }
                 }
