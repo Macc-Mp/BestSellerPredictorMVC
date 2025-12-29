@@ -23,13 +23,32 @@ namespace BestSellerPredictorMVC.Controllers
             _logger = logger;
             _modelStore = modelStore;
 
+            // Determine content root
             var contentRoot = env?.ContentRootPath ?? Directory.GetCurrentDirectory();
 
-            // Prefer the actual web root; if it's not set, use contentRoot + "wwwroot"
+            // Get a candidate webRoot from IWebHostEnvironment
             var webRoot = env?.WebRootPath;
-            if (string.IsNullOrEmpty(webRoot))
+
+            // If IWebHostEnvironment.WebRootPath is missing or not present on disk, try the common App Service location
+            if (string.IsNullOrEmpty(webRoot) || !Directory.Exists(webRoot))
+            {
+                var home = Environment.GetEnvironmentVariable("HOME");
+                if (!string.IsNullOrEmpty(home))
+                {
+                    var appServiceWebRoot = Path.Combine(home, "site", "wwwroot");
+                    if (Directory.Exists(appServiceWebRoot))
+                    {
+                        webRoot = appServiceWebRoot;
+                        _logger.LogInformation("Using App Service webroot candidate: {WebRoot}", webRoot);
+                    }
+                }
+            }
+
+            // Final fallback to contentRoot/wwwroot
+            if (string.IsNullOrEmpty(webRoot) || !Directory.Exists(webRoot))
             {
                 webRoot = Path.Combine(contentRoot, "wwwroot");
+                _logger.LogWarning("Falling back to contentRoot/wwwroot: {WebRoot}", webRoot);
             }
 
             // Normalize accidental duplication like "...\\wwwroot\\wwwroot" -> keep single "wwwroot"
@@ -39,11 +58,11 @@ namespace BestSellerPredictorMVC.Controllers
                 var idx = webRoot.IndexOf(duplicateSegment, StringComparison.OrdinalIgnoreCase);
                 if (idx >= 0)
                 {
-                    // Keep up to the first "wwwroot"
                     var firstIndex = webRoot.IndexOf("wwwroot", StringComparison.OrdinalIgnoreCase);
                     if (firstIndex >= 0)
                     {
                         webRoot = webRoot.Substring(0, firstIndex + "wwwroot".Length);
+                        _logger.LogInformation("Normalized duplicated webroot to: {WebRoot}", webRoot);
                     }
                 }
             }
@@ -52,11 +71,33 @@ namespace BestSellerPredictorMVC.Controllers
                 _logger.LogWarning(ex, "Error normalizing webRoot path; using value as-is: {WebRoot}", webRoot);
             }
 
+            // Build uploads path. Also handle the case where files are actually under webRoot\wwwroot (nested)
             var uploadDir = Path.Combine(webRoot, "uploads");
-
             if (!Directory.Exists(uploadDir))
             {
-                Directory.CreateDirectory(uploadDir);
+                // Check common nested location: webRoot\wwwroot\uploads
+                var nested = Path.Combine(webRoot, "wwwroot", "uploads");
+                if (Directory.Exists(nested))
+                {
+                    uploadDir = nested;
+                    _logger.LogInformation("Using nested uploads path: {UploadDir}", uploadDir);
+                }
+                else
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(uploadDir);
+                        _logger.LogInformation("Created uploads directory: {UploadDir}", uploadDir);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to create uploads directory at {UploadDir}. Falling back to content root uploads.", uploadDir);
+                        // Fallback: contentRoot/wwwroot/uploads
+                        var fallback = Path.Combine(contentRoot, "wwwroot", "uploads");
+                        Directory.CreateDirectory(fallback);
+                        uploadDir = fallback;
+                    }
+                }
             }
 
             _uploadPath = uploadDir;
