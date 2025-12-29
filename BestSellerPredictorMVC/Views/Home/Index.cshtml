@@ -1,5 +1,11 @@
 ﻿@model IndexViewModel
 
+@{
+    // Fix: Access session via ViewContext.HttpContext in Razor views
+    var trainingFile = ViewContext.HttpContext.Session.GetString("TrainingFile") ?? "—";
+    var predictionFile = ViewContext.HttpContext.Session.GetString("PredictionFile") ?? "—";
+}
+
 <div class="row">
     <div class="col-md-6">
         <h4>Step 1 — Upload Training Excel</h4>
@@ -156,6 +162,26 @@
         <span class="ms-3 text-muted">Model token: <strong>@ViewBag.ModelToken</strong></span>
     </div>
 }
+
+@if (TempData["ClearFilesResult"] != null)
+{
+    <div class="alert alert-info mt-2" role="alert">@TempData["ClearFilesResult"]</div>
+}
+
+<div class="mb-3">
+    <form asp-action="ClearFiles" method="post" class="d-inline"
+          onsubmit="return confirm('Delete uploaded training and prediction files for this session? This cannot be undone.');">
+        @Html.AntiForgeryToken()
+        <button type="submit" class="btn btn-warning">Clear Files</button>
+    </form>
+
+    @* Show which files would be cleared (session values) *@
+    <span class="ms-3 text-muted">
+        Training file: <strong>@trainingFile</strong>
+        &nbsp;|&nbsp;
+        Prediction file: <strong>@predictionFile</strong>
+    </span>
+</div>
 
 @if (TempData["PredictionPending"] != null)
 {

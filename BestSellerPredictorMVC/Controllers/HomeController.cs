@@ -617,5 +617,74 @@ namespace BestSellerPredictorMVC.Controllers
 
             return RedirectToAction("Index");
         }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ClearFiles()
+        {
+            var trainingFile = HttpContext.Session.GetString("TrainingFile");
+            var predictionFile = HttpContext.Session.GetString("PredictionFile");
+
+            var deleted = new List<string>();
+
+            try
+            {
+                void TryDelete(string fileName)
+                {
+                    if (string.IsNullOrEmpty(fileName)) return;
+                    try
+                    {
+                        var path = Path.Combine(_uploadPath, fileName);
+                        // Safety: ensure path is inside uploads folder
+                        var normalizedUpload = Path.GetFullPath(_uploadPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                        var normalizedPath = Path.GetFullPath(path);
+                        if (!normalizedPath.StartsWith(normalizedUpload, StringComparison.OrdinalIgnoreCase)) return;
+
+                        if (System.IO.File.Exists(normalizedPath))
+                        {
+                            System.IO.File.Delete(normalizedPath);
+                            deleted.Add(fileName);
+                            _logger.LogInformation("Deleted upload file {File}", normalizedPath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed deleting upload file {FileName}", fileName);
+                    }
+                }
+
+                TryDelete(trainingFile);
+                TryDelete(predictionFile);
+
+                // Clear only the session keys related to these files
+                HttpContext.Session.Remove("TrainingFile");
+                HttpContext.Session.Remove("PredictionFile");
+
+                try
+                {
+                    await HttpContext.Session.CommitAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to commit session after clearing TrainingFile/PredictionFile");
+                }
+
+                if (deleted.Any())
+                {
+                    TempData["ClearFilesResult"] = $"Deleted files: {string.Join(", ", deleted)}";
+                }
+                else
+                {
+                    TempData["ClearFilesResult"] = "No training or prediction files found to delete for this session.";
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing uploaded files for session.");
+                TempData["ClearFilesResult"] = "Error clearing files (see server logs).";
+            }
+
+            return RedirectToAction("Index");
+        }
     }
 }
