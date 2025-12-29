@@ -242,35 +242,24 @@ namespace BestSellerPredictorMVC.Controllers
         [HttpPost]
         public async Task<IActionResult> UploadPredictionExcel(IFormFile predictionExcelFile)
         {
-            // Improved logging for debugging
-            _logger.LogInformation("UploadPredictionExcel called. SessionId={SessionId} Cookies={Cookies} SessionAvailable={IsAvailable} ModelPath={ModelPath} TrainingFile={TrainingFile} PredictionFileBefore={PredictionFile}",
+            _logger.LogInformation("UploadPredictionExcel called. SessionId={SessionId} Cookies={Cookies} SessionAvailable={IsAvailable} ModelPath(before)={ModelPath} TrainingFile={TrainingFile}",
                 HttpContext.Session?.Id,
                 Request.Headers["Cookie"].ToString(),
                 HttpContext.Session.IsAvailable,
                 HttpContext.Session.GetString("ModelPath"),
-                HttpContext.Session.GetString("TrainingFile"),
-                HttpContext.Session.GetString("PredictionFile"));
+                HttpContext.Session.GetString("TrainingFile"));
 
-            // If model path is missing in session, attempt to recover it from a token:
+            // Try to ensure ModelPath exists in session before saving prediction:
             var modelPath = HttpContext.Session.GetString("ModelPath");
             if (string.IsNullOrEmpty(modelPath))
             {
+                // Attempt token-based rehydrate (TempData, form or query) - existing behavior
                 string token = null;
-
-                // 1) Check TempData (use Peek so we don't consume it)
-                try { token ??= TempData.Peek("ModelToken") as string; } catch { /* ignore */ }
-
-                // 2) Check form (hidden input posted with the prediction form)
+                try { token ??= TempData.Peek("ModelToken") as string; } catch { }
                 if (string.IsNullOrEmpty(token) && Request.HasFormContentType && Request.Form.ContainsKey("token"))
-                {
                     token = Request.Form["token"].ToString();
-                }
-
-                // 3) Check query string
                 if (string.IsNullOrEmpty(token) && Request.Query.ContainsKey("token"))
-                {
                     token = Request.Query["token"].ToString();
-                }
 
                 if (!string.IsNullOrEmpty(token))
                 {
@@ -282,38 +271,46 @@ namespace BestSellerPredictorMVC.Controllers
                             var expectedModelPath = Path.Combine(_uploadPath, record.ModelFileName);
                             if (System.IO.File.Exists(expectedModelPath))
                             {
-                                // Rehydrate session so subsequent logic finds the model
                                 HttpContext.Session.SetString("ModelPath", record.ModelFileName);
-                                if (!string.IsNullOrEmpty(record.TrainingFileName))
-                                    HttpContext.Session.SetString("TrainingFile", record.TrainingFileName);
                                 HttpContext.Session.SetString("ModelToken", record.Token);
                                 HttpContext.Session.SetString("ModelMetric_Micro", record.ModelMetric_Micro ?? string.Empty);
                                 HttpContext.Session.SetString("ModelMetric_Macro", record.ModelMetric_Macro ?? string.Empty);
                                 HttpContext.Session.SetString("ModelMetric_LogLoss", record.ModelMetric_LogLoss ?? string.Empty);
-
                                 try { await HttpContext.Session.CommitAsync(); } catch (Exception ex) { _logger.LogWarning(ex, "Session commit failed while rehydrating from token {Token}", token); }
-
                                 modelPath = record.ModelFileName;
                                 _logger.LogInformation("Rehydrated session from token {Token} -> ModelPath={ModelPath}", token, modelPath);
-                                TempData["LoadTokenSuccess"] = "Session rehydrated from token.";
                             }
                             else
                             {
                                 _logger.LogWarning("Model file for token {Token} not found at expected path: {Path}", token, expectedModelPath);
-                                TempData["LoadTokenError"] = "Saved model file not found on server.";
                             }
-                        }
-                        else
-                        {
-                            _logger.LogWarning("No record found in ModelStore for token {Token}", token);
-                            TempData["LoadTokenError"] = "Model token not found.";
                         }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Error loading model record for token {Token}", token);
-                        TempData["LoadTokenError"] = "Error loading model token (see logs).";
                     }
+                }
+            }
+
+            // Additional fallback: find any model zip in the uploads folder
+            if (string.IsNullOrEmpty(HttpContext.Session.GetString("ModelPath")))
+            {
+                try
+                {
+                    var candidate = Directory.GetFiles(_uploadPath, "*_MLModel.zip").FirstOrDefault()
+                                ?? Directory.GetFiles(_uploadPath, "MLModel.zip").FirstOrDefault();
+                    if (!string.IsNullOrEmpty(candidate))
+                    {
+                        var candidateName = Path.GetFileName(candidate);
+                        HttpContext.Session.SetString("ModelPath", candidateName);
+                        try { await HttpContext.Session.CommitAsync(); } catch (Exception ex) { _logger.LogWarning(ex, "Session commit failed while setting fallback ModelPath"); }
+                        _logger.LogInformation("Fallback: set ModelPath to {ModelPath} from uploads folder", candidateName);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed searching uploads for fallback ML model.");
                 }
             }
 
@@ -331,7 +328,6 @@ namespace BestSellerPredictorMVC.Controllers
 
             try
             {
-                // Save incoming prediction file
                 using (var stream = new FileStream(filePath, FileMode.Create))
                 {
                     await predictionExcelFile.CopyToAsync(stream);
@@ -339,21 +335,11 @@ namespace BestSellerPredictorMVC.Controllers
 
                 _logger.LogInformation("Prediction file saved to {FilePath} as {StoredName} (exists={Exists})", filePath, storedName, System.IO.File.Exists(filePath));
 
-                // Save to session so Index action can pick it up
                 HttpContext.Session.SetString("PredictionFile", storedName);
                 TempData["PredictionExcelUploaded"] = true;
+                try { await HttpContext.Session.CommitAsync(); } catch (Exception ex) { _logger.LogWarning(ex, "Failed to commit session after setting PredictionFile"); }
 
-                try
-                {
-                    await HttpContext.Session.CommitAsync();
-                    _logger.LogInformation("Session committed after setting PredictionFile={PredictionFile}", storedName);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to commit session after setting PredictionFile");
-                }
-
-                // If we have a token for this model, update the persistent record with the prediction filename
+                // Update model record if token present
                 try
                 {
                     var token = HttpContext.Session.GetString("ModelToken") ?? (TempData.Peek("ModelToken") as string);
@@ -366,14 +352,6 @@ namespace BestSellerPredictorMVC.Controllers
                             await _modelStore.SaveAsync(existing);
                             _logger.LogInformation("Updated model record {Token} with prediction file {Prediction}", token, storedName);
                         }
-                        else
-                        {
-                            _logger.LogWarning("No model record found for token {Token} when saving prediction file {Prediction}", token, storedName);
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogInformation("No ModelToken available to associate prediction file {Prediction}", storedName);
                     }
                 }
                 catch (Exception ex)
@@ -381,11 +359,11 @@ namespace BestSellerPredictorMVC.Controllers
                     _logger.LogError(ex, "Failed to update model record with prediction file");
                 }
 
-                // If model is not yet available in session or model file doesn't exist yet, mark as pending
+                // If model still not available, mark as pending (UI will show message)
                 var modelFileNow = HttpContext.Session.GetString("ModelPath");
                 if (string.IsNullOrEmpty(modelFileNow) || !System.IO.File.Exists(Path.Combine(_uploadPath, modelFileNow)))
                 {
-                    TempData["PredictionPending"] = "Model is not ready yet. The uploaded prediction will be processed after training completes.";
+                    TempData["PredictionPending"] = "Model is not ready yet. The uploaded prediction will be processed after training completes or after you load the model token.";
                     _logger.LogInformation("Prediction uploaded but model not ready for session. PredictionFile={PredictionFile} ModelPath={ModelPath}", storedName, modelFileNow);
                 }
             }
@@ -456,6 +434,28 @@ namespace BestSellerPredictorMVC.Controllers
             var productList = new List<ProductSalesData>();
             var predictions = new List<ProductSalePrediction>();
 
+            // If session missed ModelPath, try to detect model file on disk (fallback)
+            if (string.IsNullOrEmpty(modelFile))
+            {
+                try
+                {
+                    var candidate = Directory.GetFiles(_uploadPath, "*_MLModel.zip").FirstOrDefault()
+                                ?? Directory.GetFiles(_uploadPath, "MLModel.zip").FirstOrDefault();
+                    if (!string.IsNullOrEmpty(candidate))
+                    {
+                        modelFile = Path.GetFileName(candidate);
+                        // we don't force-write to session here, just use it for the view
+                        ViewBag.ModelTrained = true;
+                        ViewBag.ModelPathDetected = modelFile;
+                        _logger.LogInformation("Index fallback: detected model file on disk {ModelFile} in uploads", modelFile);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Index fallback: error scanning uploads for model file");
+                }
+            }
+
             if (!string.IsNullOrEmpty(trainingFile))
             {
                 var trainingPath = Path.Combine(_uploadPath, trainingFile);
@@ -483,20 +483,19 @@ namespace BestSellerPredictorMVC.Controllers
                     ViewBag.ModelMetric_Micro = HttpContext.Session.GetString("ModelMetric_Micro");
                     ViewBag.ModelMetric_Macro = HttpContext.Session.GetString("ModelMetric_Macro");
                     ViewBag.ModelMetric_LogLoss = HttpContext.Session.GetString("ModelMetric_LogLoss");
-                    // expose token to the view if present
-                    ViewBag.ModelToken = HttpContext.Session.GetString("ModelToken");
+                    ViewBag.ModelToken = HttpContext.Session.GetString("ModelToken") ?? ViewBag.ModelToken;
                 }
                 else
                 {
-                    ViewBag.ModelTrained = false;
+                    ViewBag.ModelTrained = ViewBag.ModelTrained ?? false;
                 }
             }
             else
             {
-                ViewBag.ModelTrained = false;
+                ViewBag.ModelTrained = ViewBag.ModelTrained ?? false;
             }
 
-            if (!string.IsNullOrEmpty(predictionFile) && ViewBag.ModelTrained == true)
+            if (!string.IsNullOrEmpty(predictionFile) && (ViewBag.ModelTrained as bool? == true))
             {
                 var predictionPath = Path.Combine(_uploadPath, predictionFile);
                 if (System.IO.File.Exists(predictionPath))
@@ -504,7 +503,9 @@ namespace BestSellerPredictorMVC.Controllers
                     productList = loader.LoadData(predictionPath).ToList();
                     if (productList.Any())
                     {
-                        var predictor = new MLModelPredictor(Path.Combine(_uploadPath, HttpContext.Session.GetString("ModelPath")!));
+                        // prefer session ModelPath, fallback to detected modelFile
+                        var modelToUse = HttpContext.Session.GetString("ModelPath") ?? (ViewBag.ModelPathDetected as string);
+                        var predictor = new MLModelPredictor(Path.Combine(_uploadPath, modelToUse!));
                         predictions = predictor.PredictBatch(productList).ToList();
                         ViewBag.PredictionExcelUploaded = true;
                     }
@@ -524,7 +525,6 @@ namespace BestSellerPredictorMVC.Controllers
                 TrainingDataList = trainingDataExcel,
                 ProductList = productList,
                 PredictionResults = predictions,
-                // Keep null: metrics shown via ViewBag to avoid reconstructing ML types
                 ModelEvalMetrics = null
             };
 
