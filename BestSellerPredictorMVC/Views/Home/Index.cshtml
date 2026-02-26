@@ -164,7 +164,8 @@
 }
 
 @{
-    var sessionToken = ViewContext.HttpContext.Session.GetString("ModelToken");
+    // Read model token from cookie instead of session (for Azure compatibility)
+    var sessionToken = ViewContext.HttpContext.Request.Cookies["ModelToken"];
 }
 
 @if (!string.IsNullOrEmpty(sessionToken))

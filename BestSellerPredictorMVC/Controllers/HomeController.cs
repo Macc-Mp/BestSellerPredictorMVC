@@ -117,6 +117,8 @@ namespace BestSellerPredictorMVC.Controllers
 
             // Generate a unique token for this user's model/session
             var token = Guid.NewGuid().ToString("N");
+            // Set model token as a cookie (works on free Azure)
+            Response.Cookies.Append("ModelToken", token, new CookieOptions { HttpOnly = true, Secure = true, SameSite = SameSiteMode.Lax });
 
             var originalFileName = Path.GetFileName(trainingExcelFile.FileName);
             var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
@@ -177,8 +179,7 @@ namespace BestSellerPredictorMVC.Controllers
                     if (model != null && System.IO.File.Exists(modelPath))
                     {
                         HttpContext.Session.SetString("ModelPath", modelFileName);
-                        // Persist token in session so we can correlate later (predictions, downloads, debug)
-                        HttpContext.Session.SetString("ModelToken", token);
+                        // Persist token in cookie (already set above)
                         // Persist metrics; if evaluation failed store a clear "N/A" marker so UI shows an explicit value
                         if (metrics != null)
                         {
@@ -268,13 +269,16 @@ namespace BestSellerPredictorMVC.Controllers
             var modelPath = HttpContext.Session.GetString("ModelPath");
             if (string.IsNullOrEmpty(modelPath))
             {
-                // Attempt token-based rehydrate (TempData, form or query) - existing behavior
+                // Attempt token-based rehydrate (TempData, form, query, or cookie)
                 string token = null;
                 try { token ??= TempData.Peek("ModelToken") as string; } catch { }
                 if (string.IsNullOrEmpty(token) && Request.HasFormContentType && Request.Form.ContainsKey("token"))
                     token = Request.Form["token"].ToString();
                 if (string.IsNullOrEmpty(token) && Request.Query.ContainsKey("token"))
                     token = Request.Query["token"].ToString();
+                // Try cookie if not found elsewhere
+                if (string.IsNullOrEmpty(token))
+                    token = Request.Cookies["ModelToken"];
 
                 if (!string.IsNullOrEmpty(token))
                 {
@@ -287,7 +291,7 @@ namespace BestSellerPredictorMVC.Controllers
                             if (System.IO.File.Exists(expectedModelPath))
                             {
                                 HttpContext.Session.SetString("ModelPath", record.ModelFileName);
-                                HttpContext.Session.SetString("ModelToken", record.Token);
+                                // No need to set ModelToken in session, use cookie
                                 HttpContext.Session.SetString("ModelMetric_Micro", record.ModelMetric_Micro ?? string.Empty);
                                 HttpContext.Session.SetString("ModelMetric_Macro", record.ModelMetric_Macro ?? string.Empty);
                                 HttpContext.Session.SetString("ModelMetric_LogLoss", record.ModelMetric_LogLoss ?? string.Empty);
@@ -357,7 +361,8 @@ namespace BestSellerPredictorMVC.Controllers
                 // Update model record if token present
                 try
                 {
-                    var token = HttpContext.Session.GetString("ModelToken") ?? (TempData.Peek("ModelToken") as string);
+                    // Try to get token from session, TempData, or cookie
+                    var token = HttpContext.Session.GetString("ModelToken") ?? (TempData.Peek("ModelToken") as string) ?? Request.Cookies["ModelToken"];
                     if (!string.IsNullOrEmpty(token))
                     {
                         var existing = await _modelStore.GetAsync(token);
@@ -441,9 +446,11 @@ namespace BestSellerPredictorMVC.Controllers
             var trainingFile = HttpContext.Session.GetString("TrainingFile");
             var predictionFile = HttpContext.Session.GetString("PredictionFile");
             var modelFile = HttpContext.Session.GetString("ModelPath");
+            // Try to get model token from session, then cookie
+            var modelToken = HttpContext.Session.GetString("ModelToken") ?? Request.Cookies["ModelToken"];
 
-            _logger.LogInformation("Index: Session keys ModelPath={ModelPath} TrainingFile={TrainingFile} PredictionFile={PredictionFile}",
-                modelFile, trainingFile, predictionFile);
+            _logger.LogInformation("Index: Session keys ModelPath={ModelPath} TrainingFile={TrainingFile} PredictionFile={PredictionFile} ModelToken={ModelToken}",
+                modelFile, trainingFile, predictionFile, modelToken);
 
             var trainingDataExcel = new List<TrainingDataExcel>();
             var productList = new List<ProductSalesData>();
@@ -499,7 +506,7 @@ namespace BestSellerPredictorMVC.Controllers
                     ViewBag.ModelMetric_Micro = HttpContext.Session.GetString("ModelMetric_Micro");
                     ViewBag.ModelMetric_Macro = HttpContext.Session.GetString("ModelMetric_Macro");
                     ViewBag.ModelMetric_LogLoss = HttpContext.Session.GetString("ModelMetric_LogLoss");
-                    ViewBag.ModelToken = HttpContext.Session.GetString("ModelToken") ?? ViewBag.ModelToken;
+                    ViewBag.ModelToken = modelToken ?? ViewBag.ModelToken;
 
                     if (string.IsNullOrEmpty(ViewBag.ModelMetric_Micro as string) && !string.IsNullOrEmpty(modelFile))
                     {
@@ -588,10 +595,11 @@ namespace BestSellerPredictorMVC.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ClearModel()
         {
-            var token = HttpContext.Session.GetString("ModelToken");
+            // Try to get token from session, then cookie
+            var token = HttpContext.Session.GetString("ModelToken") ?? Request.Cookies["ModelToken"];
             if (string.IsNullOrEmpty(token))
             {
-                TempData["ClearResult"] = "No model token in session to clear.";
+                TempData["ClearResult"] = "No model token found to clear.";
                 return RedirectToAction("Index");
             }
 
@@ -634,6 +642,7 @@ namespace BestSellerPredictorMVC.Controllers
                 var deleted = await _modelStore.DeleteAsync(token);
                 _logger.LogInformation("ModelStore.DeleteAsync({Token}) -> {Deleted}", token, deleted);
 
+
                 // Clear session keys related to this model
                 HttpContext.Session.Remove("ModelPath");
                 HttpContext.Session.Remove("TrainingFile");
@@ -642,6 +651,9 @@ namespace BestSellerPredictorMVC.Controllers
                 HttpContext.Session.Remove("ModelMetric_Micro");
                 HttpContext.Session.Remove("ModelMetric_Macro");
                 HttpContext.Session.Remove("ModelMetric_LogLoss");
+
+                // Remove the model token cookie
+                Response.Cookies.Delete("ModelToken");
 
                 try
                 {
