@@ -26,13 +26,22 @@ namespace BestSellerPredictorMVC.Services
             var basePath = Environment.GetEnvironmentVariable("HOME") ?? Directory.GetCurrentDirectory();
             _storePath = Path.Combine(basePath, "modelstore");
             Directory.CreateDirectory(_storePath);
+            Console.WriteLine($"[ModelStore] Using store path: {_storePath}");
         }
 
-        public Task SaveAsync(ModelRecord record)
+        public async Task SaveAsync(ModelRecord record)
         {
             var file = Path.Combine(_storePath, $"{record.Token}.json");
             var json = JsonSerializer.Serialize(record, new JsonSerializerOptions { WriteIndented = true });
-            return File.WriteAllTextAsync(file, json);
+            try
+            {
+                await File.WriteAllTextAsync(file, json);
+                Console.WriteLine($"[ModelStore] Saved model record: {file}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ModelStore] Error saving model record: {ex.Message}");
+            }
         }
 
         public async Task<ModelRecord?> GetAsync(string token)
