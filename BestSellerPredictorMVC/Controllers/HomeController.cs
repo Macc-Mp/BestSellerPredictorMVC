@@ -502,33 +502,31 @@ namespace BestSellerPredictorMVC.Controllers
                 if (System.IO.File.Exists(modelPath))
                 {
                     ViewBag.ModelTrained = true;
-                    // Prefer session-stored metrics when available; otherwise try to read from persistent ModelStore
+                    // Prefer session-stored metrics when available
                     ViewBag.ModelMetric_Micro = HttpContext.Session.GetString("ModelMetric_Micro");
                     ViewBag.ModelMetric_Macro = HttpContext.Session.GetString("ModelMetric_Macro");
                     ViewBag.ModelMetric_LogLoss = HttpContext.Session.GetString("ModelMetric_LogLoss");
                     ViewBag.ModelToken = modelToken ?? ViewBag.ModelToken;
 
-                    if (string.IsNullOrEmpty(ViewBag.ModelMetric_Micro as string) && !string.IsNullOrEmpty(modelFile))
+                    // Always try to load metrics from ModelStore if missing and we have a model token
+                    if (((string.IsNullOrEmpty(ViewBag.ModelMetric_Micro as string) || ViewBag.ModelMetric_Micro == "N/A")
+                        || string.IsNullOrEmpty(ViewBag.ModelMetric_Macro as string) || string.IsNullOrEmpty(ViewBag.ModelMetric_LogLoss as string))
+                        && !string.IsNullOrEmpty(modelToken))
                     {
                         try
                         {
-                            // Derive token from model filename (token_timestamp_MLModel.zip)
-                            var tokenCandidate = modelFile.Split('_').FirstOrDefault();
-                            if (!string.IsNullOrEmpty(tokenCandidate))
+                            var rec = await _modelStore.GetAsync(modelToken);
+                            if (rec != null)
                             {
-                                var rec = await _modelStore.GetAsync(tokenCandidate);
-                                if (rec != null)
-                                {
-                                    ViewBag.ModelMetric_Micro = string.IsNullOrEmpty(ViewBag.ModelMetric_Micro as string) ? rec.ModelMetric_Micro : ViewBag.ModelMetric_Micro;
-                                    ViewBag.ModelMetric_Macro = string.IsNullOrEmpty(ViewBag.ModelMetric_Macro as string) ? rec.ModelMetric_Macro : ViewBag.ModelMetric_Macro;
-                                    ViewBag.ModelMetric_LogLoss = string.IsNullOrEmpty(ViewBag.ModelMetric_LogLoss as string) ? rec.ModelMetric_LogLoss : ViewBag.ModelMetric_LogLoss;
-                                    ViewBag.ModelToken = ViewBag.ModelToken ?? rec.Token;
-                                }
+                                ViewBag.ModelMetric_Micro = rec.ModelMetric_Micro;
+                                ViewBag.ModelMetric_Macro = rec.ModelMetric_Macro;
+                                ViewBag.ModelMetric_LogLoss = rec.ModelMetric_LogLoss;
+                                ViewBag.ModelToken = rec.Token;
                             }
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "Index: failed to read model record for detected model file {ModelFile}", modelFile);
+                            _logger.LogWarning(ex, "Index: failed to read model record for token {Token}", modelToken);
                         }
                     }
                 }
