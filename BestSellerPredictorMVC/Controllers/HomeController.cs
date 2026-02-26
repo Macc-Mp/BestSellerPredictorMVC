@@ -179,9 +179,19 @@ namespace BestSellerPredictorMVC.Controllers
                         HttpContext.Session.SetString("ModelPath", modelFileName);
                         // Persist token in session so we can correlate later (predictions, downloads, debug)
                         HttpContext.Session.SetString("ModelToken", token);
-                        HttpContext.Session.SetString("ModelMetric_Micro", metrics?.MicroAccuracy.ToString("F4") ?? string.Empty);
-                        HttpContext.Session.SetString("ModelMetric_Macro", metrics?.MacroAccuracy.ToString("F4") ?? string.Empty);
-                        HttpContext.Session.SetString("ModelMetric_LogLoss", metrics?.LogLoss.ToString("F4") ?? string.Empty);
+                        // Persist metrics; if evaluation failed store a clear "N/A" marker so UI shows an explicit value
+                        if (metrics != null)
+                        {
+                            HttpContext.Session.SetString("ModelMetric_Micro", metrics.MicroAccuracy.ToString("F4"));
+                            HttpContext.Session.SetString("ModelMetric_Macro", metrics.MacroAccuracy.ToString("F4"));
+                            HttpContext.Session.SetString("ModelMetric_LogLoss", metrics.LogLoss.ToString("F4"));
+                        }
+                        else
+                        {
+                            HttpContext.Session.SetString("ModelMetric_Micro", "N/A");
+                            HttpContext.Session.SetString("ModelMetric_Macro", "N/A");
+                            HttpContext.Session.SetString("ModelMetric_LogLoss", "N/A");
+                        }
                         TempData["ModelTrained"] = true;
                         // Expose token to the UI so user can copy it if needed
                         TempData["ModelToken"] = token;
@@ -524,6 +534,11 @@ namespace BestSellerPredictorMVC.Controllers
             {
                 ViewBag.ModelTrained = ViewBag.ModelTrained ?? false;
             }
+
+            // Ensure UI shows a placeholder when metrics are missing
+            ViewBag.ModelMetric_Micro = string.IsNullOrEmpty(ViewBag.ModelMetric_Micro as string) ? "N/A" : ViewBag.ModelMetric_Micro;
+            ViewBag.ModelMetric_Macro = string.IsNullOrEmpty(ViewBag.ModelMetric_Macro as string) ? "N/A" : ViewBag.ModelMetric_Macro;
+            ViewBag.ModelMetric_LogLoss = string.IsNullOrEmpty(ViewBag.ModelMetric_LogLoss as string) ? "N/A" : ViewBag.ModelMetric_LogLoss;
 
             if (!string.IsNullOrEmpty(predictionFile) && (ViewBag.ModelTrained as bool? == true))
             {
