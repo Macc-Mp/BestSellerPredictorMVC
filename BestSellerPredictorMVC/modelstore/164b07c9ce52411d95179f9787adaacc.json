@@ -1,0 +1,10 @@
+{
+  "Token": "164b07c9ce52411d95179f9787adaacc",
+  "ModelFileName": "164b07c9ce52411d95179f9787adaacc_20260226032134265_MLModel.zip",
+  "TrainingFileName": "164b07c9ce52411d95179f9787adaacc_20260226032134265_Testing Data For Model Training.xlsx",
+  "PredictionFileName": "",
+  "ModelMetric_Micro": "1.0000",
+  "ModelMetric_Macro": "1.0000",
+  "ModelMetric_LogLoss": "0.0705",
+  "CreatedUtc": "2026-02-26T03:21:36.6909446Z"
+}

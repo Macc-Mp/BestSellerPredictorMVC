@@ -96,11 +96,14 @@ app.UseRouting();
 
 // Process forwarded headers BEFORE cookie policy and session
 app.UseForwardedHeaders();
-app.UseAuthorization();
+
+// Apply cookie policy before session and authorization so cookie settings (SameSite/Secure) are enforced
 app.UseCookiePolicy();
 
+// Enable session so controllers can rely on session state (must be before Authorization)
 app.UseSession();
 
+// Authorization should be applied after session and cookie policy
 app.UseAuthorization();
 
 app.MapControllerRoute(

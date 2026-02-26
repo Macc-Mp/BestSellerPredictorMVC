@@ -6,7 +6,7 @@ namespace BestSellerPredictorMVC.Models
     {
 
         [LoadColumn(1)]
-        required public int ProductId { get; set; }
+        required public string ProductId { get; set; }
 
         [LoadColumn(2)]
         required public string ProductName { get; set; }

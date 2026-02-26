@@ -145,7 +145,7 @@ namespace BestSellerPredictorMVC.Controllers
 
             try
             {
-                var loader = new ExcelDataLoader();
+                var loader = new ExcelDataLoader(_logger);
                 var trainingDataExcel = loader.LoadTrainingData(filePath).ToList();
                 _logger.LogInformation("Loaded training excel rows: {Count}", trainingDataExcel.Count);
 
@@ -199,19 +199,24 @@ namespace BestSellerPredictorMVC.Controllers
                         // Save a persistent model record (file-backed, free-tier friendly)
                         try
                         {
+                            // Prefer metrics object (from trainer) when available; fall back to session values
+                            var micro = metrics != null ? metrics.MicroAccuracy.ToString("F4") : HttpContext.Session.GetString("ModelMetric_Micro") ?? string.Empty;
+                            var macro = metrics != null ? metrics.MacroAccuracy.ToString("F4") : HttpContext.Session.GetString("ModelMetric_Macro") ?? string.Empty;
+                            var logloss = metrics != null ? metrics.LogLoss.ToString("F4") : HttpContext.Session.GetString("ModelMetric_LogLoss") ?? string.Empty;
+
                             var record = new ModelRecord
                             {
                                 Token = token,
                                 ModelFileName = modelFileName,
                                 TrainingFileName = storedName,
-                                ModelMetric_Micro = HttpContext.Session.GetString("ModelMetric_Micro") ?? string.Empty,
-                                ModelMetric_Macro = HttpContext.Session.GetString("ModelMetric_Macro") ?? string.Empty,
-                                ModelMetric_LogLoss = HttpContext.Session.GetString("ModelMetric_LogLoss") ?? string.Empty,
+                                ModelMetric_Micro = micro,
+                                ModelMetric_Macro = macro,
+                                ModelMetric_LogLoss = logloss,
                                 CreatedUtc = DateTime.UtcNow
                             };
 
                             await _modelStore.SaveAsync(record);
-                            _logger.LogInformation("Saved model record for token {Token}", token);
+                            _logger.LogInformation("Saved model record for token {Token} (metrics: micro={Micro} macro={Macro} logloss={LogLoss})", token, micro, macro, logloss);
                         }
                         catch (Exception ex)
                         {
@@ -419,9 +424,9 @@ namespace BestSellerPredictorMVC.Controllers
             });
         }
 
-        public IActionResult Index()
+        public async Task<IActionResult> Index()
         {
-            var loader = new ExcelDataLoader();
+            var loader = new ExcelDataLoader(_logger);
 
             var trainingFile = HttpContext.Session.GetString("TrainingFile");
             var predictionFile = HttpContext.Session.GetString("PredictionFile");
@@ -480,10 +485,35 @@ namespace BestSellerPredictorMVC.Controllers
                 if (System.IO.File.Exists(modelPath))
                 {
                     ViewBag.ModelTrained = true;
+                    // Prefer session-stored metrics when available; otherwise try to read from persistent ModelStore
                     ViewBag.ModelMetric_Micro = HttpContext.Session.GetString("ModelMetric_Micro");
                     ViewBag.ModelMetric_Macro = HttpContext.Session.GetString("ModelMetric_Macro");
                     ViewBag.ModelMetric_LogLoss = HttpContext.Session.GetString("ModelMetric_LogLoss");
                     ViewBag.ModelToken = HttpContext.Session.GetString("ModelToken") ?? ViewBag.ModelToken;
+
+                    if (string.IsNullOrEmpty(ViewBag.ModelMetric_Micro as string) && !string.IsNullOrEmpty(modelFile))
+                    {
+                        try
+                        {
+                            // Derive token from model filename (token_timestamp_MLModel.zip)
+                            var tokenCandidate = modelFile.Split('_').FirstOrDefault();
+                            if (!string.IsNullOrEmpty(tokenCandidate))
+                            {
+                                var rec = await _modelStore.GetAsync(tokenCandidate);
+                                if (rec != null)
+                                {
+                                    ViewBag.ModelMetric_Micro = string.IsNullOrEmpty(ViewBag.ModelMetric_Micro as string) ? rec.ModelMetric_Micro : ViewBag.ModelMetric_Micro;
+                                    ViewBag.ModelMetric_Macro = string.IsNullOrEmpty(ViewBag.ModelMetric_Macro as string) ? rec.ModelMetric_Macro : ViewBag.ModelMetric_Macro;
+                                    ViewBag.ModelMetric_LogLoss = string.IsNullOrEmpty(ViewBag.ModelMetric_LogLoss as string) ? rec.ModelMetric_LogLoss : ViewBag.ModelMetric_LogLoss;
+                                    ViewBag.ModelToken = ViewBag.ModelToken ?? rec.Token;
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Index: failed to read model record for detected model file {ModelFile}", modelFile);
+                        }
+                    }
                 }
                 else
                 {

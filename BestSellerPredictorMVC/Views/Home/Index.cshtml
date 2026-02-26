@@ -16,6 +16,7 @@
             <li>QuantitySold (#)</li>
             <li>SalePerformanceCategory (txt)</li>
         </ul>
+</<div>
     <div class="col-md-6">
         <h4>Step 1 — Upload Training Excel</h4>
         <form asp-action="UploadTrainingExcel" asp-controller="Home" enctype="multipart/form-data" method="post">
@@ -88,7 +89,7 @@
     <table class="table">
         <thead>
             <tr>
-                <th>PID</th>
+                <th>ProductID</th>
                 <th>Product Name</th>
                 <th>Category</th>
                 <th>Unit Price</th>
@@ -129,6 +130,7 @@
         <thead>
             <tr>
                 <th>Product ID</th>
+                <th>Product Name</th>
                 <th>Predicted Category</th>
                 <th>Scores</th>
             </tr>
@@ -139,6 +141,7 @@
                 var pred = Model.PredictionResults[i];
                 <tr>
                     <td>@Model.ProductList[i].ProductId</td>
+                    <td>@Model.ProductList[i].ProductName</td>
                     <td>@pred.PredictedSalePerformanceCategory</td>
                     <td>
                         @if (pred.Score != null)
@@ -160,7 +163,11 @@
     <div class="alert alert-info" role="alert">@TempData["ClearResult"]</div>
 }
 
-@if (!string.IsNullOrEmpty(ViewBag.ModelToken as string))
+@{
+    var sessionToken = ViewContext.HttpContext.Session.GetString("ModelToken");
+}
+
+@if (!string.IsNullOrEmpty(sessionToken))
 {
     <div class="mb-3">
         <form asp-action="ClearModel" method="post" class="d-inline"
@@ -168,7 +175,13 @@
             @Html.AntiForgeryToken()
             <button type="submit" class="btn btn-danger">Clear Model</button>
         </form>
-        <span class="ms-3 text-muted">Model token: <strong>@ViewBag.ModelToken</strong></span>
+        <span class="ms-3 text-muted">Model token: <strong>@sessionToken</strong></span>
+    </div>
+}
+else if (!string.IsNullOrEmpty(ViewBag.ModelToken as string))
+{
+    <div class="mb-3">
+        <span class="text-muted">A model exists on the server (token: <strong>@ViewBag.ModelToken</strong>), but it's not associated with your session.</span>
     </div>
 }
 

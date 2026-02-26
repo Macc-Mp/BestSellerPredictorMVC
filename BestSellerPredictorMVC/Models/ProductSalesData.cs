@@ -14,7 +14,7 @@ namespace BestSellerPredictorMVC.Models
         // QuantitySold is in column E (index 4)
         // SalePerformanceCategory is in column F (index 5)
         [LoadColumn(0)]
-        public int ProductId { get; set; }
+        required public string ProductId { get; set; }
 
         [LoadColumn(1)]
         required public string ProductName { get; set; }
