@@ -19,11 +19,11 @@ To ensure accurate result generation, your Excel file must follow the required f
 
 | Column Name | Type | Description |
 | :--- | :--- | :--- |
-| **Date** | `YYYY-MM-DD` | Date of the sales record |
-| **ProductID** | `string` | Unique identifier for the product |
+| **ProductID** | `string` | Date of the sales record |
+| **ProductName** | `string` | Unique identifier for the product |
 | **Category** | `string` | Product department or group |
-| **UnitsSold** | `int` | Total volume moved |
-| **Price** | `decimal` | Unit price at time of sale |
+| **UnitPrice** | `decimal` | Price |
+| **QuanitySold** | `int` | volume of product sold |
 
 ---
 
