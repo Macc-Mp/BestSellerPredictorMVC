@@ -11,7 +11,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="wwwroot\uploads\*.zip">
+    <!-- Use Update instead of Include so we don't create a duplicate Content item
+         for files that are implicitly included by the SDK (wwwroot is included by default).
+         This updates the metadata (CopyToOutputDirectory) on the implicit items. -->
+    <Content Update="wwwroot\uploads\*.zip">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
