@@ -146,9 +146,21 @@
                     <td>
                         @if (pred.Score != null)
                         {
-                            for (int j = 0; j < pred.Score.Length; j++)
+                            // find top index
+                            var scores = pred.Score;
+                            var top = 0;
+                            for (int k = 1; k < scores.Length; k++)
                             {
-                                <div>@pred.Score[j].ToString("F4")</div>
+                                if (scores[k] > scores[top]) top = k;
+                            }
+
+                            for (int j = 0; j < scores.Length; j++)
+                            {
+                                var label = (pred.ScoreLabels != null && j < pred.ScoreLabels.Length)
+                                            ? pred.ScoreLabels[j]
+                                            : $"Label {j}";
+                                var css = (j == top) ? "fw-bold text-primary" : "text-muted";
+                                <div class="@css">@label: @scores[j].ToString("P1")</div>
                             }
                         }
                     </td>

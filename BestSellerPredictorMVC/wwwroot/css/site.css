@@ -20,3 +20,66 @@ html {
 body {
   margin-bottom: 60px;
 }
+
+/* highlight upload panels */
+.upload-training, form[asp-action="UploadTrainingExcel"] {
+    background: #f8fbff;
+    border: 1px solid #e1efff;
+    padding: 1rem;
+    border-radius: 6px;
+}
+
+.upload-prediction, form[asp-action="UploadPredictionExcel"] {
+    background: #fff9f0;
+    border: 1px solid #ffe8c7;
+    padding: 1rem;
+    border-radius: 6px;
+}
+
+/* file inputs */
+input[type="file"] {
+    border: 1px dashed #cfd8e3;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: #ffffff;
+}
+
+/* buttons */
+.upload-training .btn-primary,
+.upload-prediction .btn-primary {
+    background: #0d6efd;
+    border-color: #0d6efd;
+    box-shadow: none;
+}
+
+/* small note text */
+.upload-prediction .alert-warning {
+    font-size: 0.95rem;
+    background: #fff8e1;
+}
+
+/* tables */
+#main .table {
+    background: #fff;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+/* file name badges */
+.ms-3.text-muted strong {
+    background: #f1f3f5;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-weight: 600;
+}
+
+/* make alerts stand out */
+.alert-success {
+    background: #e9f7ef;
+    border-color: #c7efd6;
+}
+
+.alert-danger {
+    background: #fff0f0;
+    border-color: #f4c2c2;
+}
